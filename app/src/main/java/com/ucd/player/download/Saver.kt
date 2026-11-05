@@ -2,6 +2,7 @@ package com.ucd.player.download
 
 import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -9,6 +10,9 @@ import android.provider.DocumentsContract
 import android.provider.MediaStore
 import java.io.File
 import java.io.IOException
+
+/** Dónde quedó el archivo: texto para mostrar y su URI (para reproducirlo). */
+class Saved(val label: String, val uri: Uri?)
 
 /** Guarda el archivo ya descargado en la carpeta elegida (o en Películas/UCD si no se eligió ninguna). */
 object Saver {
@@ -57,7 +61,7 @@ object Saver {
     }
 
     /** Copia [file] al destino y devuelve el lugar donde quedó (para mostrarlo). */
-    fun save(ctx: Context, file: File, tree: String?): String {
+    fun save(ctx: Context, file: File, tree: String?): Saved {
         val name = file.name
         val mime = mimeOf(file.extension)
 
@@ -73,7 +77,8 @@ object Saver {
                 runCatching { DocumentsContract.deleteDocument(ctx.contentResolver, doc) }
                 throw e
             }
-            return label(tree)
+            scanSaf(ctx, treeUri, name)
+            return Saved(label(tree), doc)
         }
 
         // 2) Android 10+: MediaStore (Películas/UCD o Música/UCD), sin permisos extra
@@ -98,7 +103,7 @@ object Saver {
                 runCatching { ctx.contentResolver.delete(uri, null, null) }
                 throw e
             }
-            return rel
+            return Saved(rel, uri)
         }
 
         // 3) Android 8–9: carpeta propia de la app en el almacenamiento externo
@@ -108,6 +113,19 @@ object Saver {
         var n = 1
         while (dest.exists()) { dest = File(dir, file.nameWithoutExtension + " (" + n + ")." + file.extension); n++ }
         file.copyTo(dest)
-        return dest.parentFile?.absolutePath ?: dir.absolutePath
+        MediaScannerConnection.scanFile(ctx, arrayOf(dest.absolutePath), null, null)
+        return Saved(dest.parentFile?.absolutePath ?: dir.absolutePath, Uri.fromFile(dest))
+    }
+
+    /** Avisa a Android para que el video nuevo aparezca ya en la biblioteca (carpetas elegidas con el selector). */
+    private fun scanSaf(ctx: Context, tree: Uri, name: String) {
+        runCatching {
+            val id = DocumentsContract.getTreeDocumentId(tree)      // p. ej. "primary:Movies/Mis videos"
+            val vol = id.substringBefore(':')
+            val rel = id.substringAfter(':', "")
+            val root = if (vol == "primary") "/storage/emulated/0" else "/storage/$vol"
+            val path = (if (rel.isBlank()) root else "$root/$rel") + "/" + name
+            MediaScannerConnection.scanFile(ctx, arrayOf(path), null, null)
+        }
     }
 }

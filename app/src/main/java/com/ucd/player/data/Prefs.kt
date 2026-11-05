@@ -198,6 +198,11 @@ class UcdPrefs(ctx: Context) {
         get() = sp.getString("download_tree", null)
         set(v) { sp.edit().apply { if (v == null) remove("download_tree") else putString("download_tree", v) }.apply() }
 
+    /** Última vez (ms) que se actualizó yt-dlp con éxito. */
+    var ytdlUpdatedAt: Long
+        get() = sp.getLong("ytdl_updated_at", 0L)
+        set(v) { sp.edit().putLong("ytdl_updated_at", v).apply() }
+
     // --- Continuar donde lo dejaste ---
     fun position(uri: String): Long = pos.getLong(uri, 0L)
     fun savePosition(uri: String, ms: Long) { pos.edit().putLong(uri, ms).apply() }

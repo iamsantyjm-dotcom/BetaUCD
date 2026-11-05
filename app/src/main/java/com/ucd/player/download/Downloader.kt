@@ -144,9 +144,9 @@ object Downloader {
             }
 
             Downloads.set(Downloads.state.value.copy(progress = -1f, phase = "Guardando en la carpeta…", detail = ""))
-            val where = Saver.save(app, out, UcdPrefs(app).downloadTree)
-            Downloads.set(DlState(DlStatus.Done, req.title, 1f, "", "", where))
-            where
+            val saved = Saver.save(app, out, UcdPrefs(app).downloadTree)
+            Downloads.set(DlState(DlStatus.Done, req.title, 1f, "", "", saved.label, saved.uri?.toString() ?: ""))
+            saved.label
         } finally {
             processId = null
             tmp.deleteRecursively()

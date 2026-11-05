@@ -115,10 +115,7 @@ class DownloadService : Service() {
         super.onDestroy()
     }
 
-    private fun friendlyError(e: Throwable): String {
-        val msg = (e.message ?: e.toString()).lines().lastOrNull { it.isNotBlank() } ?: "Error desconocido"
-        return msg.take(300)
-    }
+    private fun friendlyError(e: Throwable): String = Errors.explain(e.message ?: e.toString())
 
     private fun notify(id: Int, n: Notification) {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

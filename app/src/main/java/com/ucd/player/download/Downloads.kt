@@ -17,6 +17,8 @@ data class DlState(
     val detail: String = "",
     /** Dónde se guardó (Done) o el motivo del error (Failed). */
     val message: String = "",
+    /** URI del archivo guardado (solo en Done), para el botón Reproducir. */
+    val uri: String = "",
 )
 
 object Downloads {

@@ -4,6 +4,7 @@ import android.content.Context
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDL.UpdateChannel
+import com.ucd.player.data.UcdPrefs
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +73,7 @@ object Ytdl {
         try {
             ensureInit(ctx)
             val st = YoutubeDL.getInstance().updateYoutubeDL(ctx.applicationContext, UpdateChannel.NIGHTLY)
+            UcdPrefs(ctx.applicationContext).ytdlUpdatedAt = System.currentTimeMillis()
             Result.success(st?.toString() ?: "listo")
         } catch (e: CancellationException) {
             throw e
@@ -80,10 +82,21 @@ object Ytdl {
         }
     }
 
+    private const val AUTO_UPDATE_DAYS = 3L
+
+    /** Actualiza yt-dlp solo si hace más de unos días que no se hace (en silencio; si falla, se sigue igual). */
+    suspend fun autoUpdateIfStale(ctx: Context) {
+        if (Downloads.isRunning()) return
+        val last = UcdPrefs(ctx.applicationContext).ytdlUpdatedAt
+        if (System.currentTimeMillis() - last < AUTO_UPDATE_DAYS * 24L * 3600L * 1000L) return
+        update(ctx)
+    }
+
     /** Pide a yt-dlp los datos del enlace SIN descargar nada. */
     suspend fun analyze(ctx: Context, url: String): Result<MediaInfo> = withContext(Dispatchers.IO) {
         try {
             ensureInit(ctx)
+            autoUpdateIfStale(ctx)
             val req = YoutubeDLRequest(url)
             req.addOption("-J")
             req.addOption("--no-playlist")

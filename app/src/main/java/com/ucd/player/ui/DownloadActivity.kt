@@ -4,6 +4,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -64,7 +65,9 @@ import com.ucd.player.download.Downloader
 import com.ucd.player.download.Downloads
 import com.ucd.player.download.FormatInfo
 import com.ucd.player.download.MediaInfo
+import com.ucd.player.download.Errors
 import com.ucd.player.download.Saver
+import com.ucd.player.player.PlayerActivity
 import com.ucd.player.download.Ytdl
 import com.ucd.player.data.UcdPrefs
 import com.ucd.player.ui.theme.UcdTheme
@@ -175,7 +178,7 @@ private fun DownloadScreen(initialUrl: String, onBack: () -> Unit) {
                     CircularProgressIndicator()
                 }
                 Text(
-                    "La primera vez puede tardar un poco mientras se prepara yt-dlp.",
+                    "Puede tardar un poco si hay que preparar o actualizar yt-dlp.",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -258,7 +261,19 @@ private fun DownloadScreen(initialUrl: String, onBack: () -> Unit) {
                     if (line.isNotBlank()) Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     OutlinedButton(onClick = { Downloader.cancel() }, modifier = Modifier.fillMaxWidth()) { Text("Cancelar descarga") }
                 }
-                DlStatus.Done -> Text("Listo. Guardado en: ${dl.message}", color = MaterialTheme.colorScheme.primary)
+                DlStatus.Done -> {
+                    Text("Listo. Guardado en: ${dl.message}", color = MaterialTheme.colorScheme.primary)
+                    if (dl.uri.isNotBlank()) {
+                        Button(
+                            onClick = {
+                                runCatching {
+                                    ctx.startActivity(PlayerActivity.intent(ctx, listOf(Uri.parse(dl.uri)), listOf(dl.title), 0))
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("Reproducir") }
+                    }
+                }
                 DlStatus.Failed -> Text("No se pudo descargar.\n${dl.message}", color = MaterialTheme.colorScheme.error)
                 DlStatus.Cancelled -> Text("Descarga cancelada.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 DlStatus.Idle -> {}
@@ -284,8 +299,7 @@ private fun Thumbnail(url: String?) {
 }
 
 private fun friendly(e: Throwable): String {
-    val msg = (e.message ?: e.toString()).lines().lastOrNull { it.isNotBlank() } ?: "Error desconocido"
-    return "No se pudo analizar el enlace.\n" + msg.take(300)
+    return "No se pudo analizar el enlace.\n" + Errors.explain(e.message ?: e.toString())
 }
 
 private fun formatLine(f: FormatInfo): String {
