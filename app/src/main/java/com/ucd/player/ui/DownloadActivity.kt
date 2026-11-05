@@ -7,7 +7,9 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.horizontalScroll
@@ -30,6 +32,8 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -39,6 +43,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -53,8 +58,13 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.ucd.player.download.DlStatus
+import com.ucd.player.download.DownloadService
+import com.ucd.player.download.Downloader
+import com.ucd.player.download.Downloads
 import com.ucd.player.download.FormatInfo
 import com.ucd.player.download.MediaInfo
+import com.ucd.player.download.Saver
 import com.ucd.player.download.Ytdl
 import com.ucd.player.data.UcdPrefs
 import com.ucd.player.ui.theme.UcdTheme
@@ -63,7 +73,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URL
 
-/** Descargar un video con yt-dlp: pegar enlace → analizar → elegir calidad → (siguiente parte) descargar. */
+/** Descargar un video con yt-dlp: pegar enlace → analizar → elegir calidad y carpeta → descargar (servicio en primer plano). */
 class DownloadActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -97,11 +107,28 @@ private fun DownloadScreen(initialUrl: String, onBack: () -> Unit) {
     var quality by remember { mutableStateOf<Int?>(null) }   // null = mejor
     var audioOnly by remember { mutableStateOf(false) }
     var showFormats by remember { mutableStateOf(false) }
+    val prefs = remember { UcdPrefs(ctx) }
+    var tree by remember { mutableStateOf(prefs.downloadTree) }
+    val dl by Downloads.state.collectAsState()
+    val running = dl.status == DlStatus.Running
+
+    val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        if (uri != null) {
+            runCatching {
+                ctx.contentResolver.takePersistableUriPermission(
+                    uri, Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            }
+            prefs.downloadTree = uri.toString()
+            tree = uri.toString()
+        }
+    }
 
     fun analyze() {
         val u = extractUrl(url) ?: url.trim()
         if (u.isBlank()) { error = "Pega un enlace primero."; return }
         loading = true; error = null; info = null
+        Downloads.clearFinished()
         scope.launch {
             Ytdl.analyze(ctx, u)
                 .onSuccess { info = it; quality = null; audioOnly = false; showFormats = false }
@@ -183,9 +210,42 @@ private fun DownloadScreen(initialUrl: String, onBack: () -> Unit) {
                     m.formats.forEach { Text(formatLine(it), style = MaterialTheme.typography.bodySmall) }
                 }
 
-                Button(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth()) {
-                    Text("Descargar (se activa en la siguiente parte)")
+
+                Text("Guardar en", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                Text(Saver.label(tree), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { pickFolder.launch(null) }, enabled = !running) { Text("Elegir carpeta") }
+                    if (tree != null) {
+                        TextButton(onClick = { prefs.downloadTree = null; tree = null }, enabled = !running) { Text("Usar predeterminada") }
+                    }
                 }
+
+                Button(
+                    onClick = {
+                        val parts = if (!audioOnly && m.formats.any { it.hasVideo && !it.hasAudio }) 2 else 1
+                        DownloadService.start(ctx, m.pageUrl, m.title, quality ?: 0, audioOnly, parts)
+                    },
+                    enabled = !running,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(if (audioOnly) "Descargar audio" else "Descargar") }
+            }
+
+            // Estado de la descarga (se ve aunque vuelvas desde la notificación)
+            when (dl.status) {
+                DlStatus.Running -> {
+                    Text(dl.title, style = MaterialTheme.typography.titleSmall)
+                    Text(dl.phase)
+                    if (dl.progress >= 0f) LinearProgressIndicator(progress = { dl.progress }, modifier = Modifier.fillMaxWidth())
+                    else LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                    val pct = if (dl.progress >= 0f) "${(dl.progress * 100).toInt()} %" else ""
+                    val line = listOf(pct, dl.detail).filter { it.isNotBlank() }.joinToString(" · ")
+                    if (line.isNotBlank()) Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    OutlinedButton(onClick = { Downloader.cancel() }, modifier = Modifier.fillMaxWidth()) { Text("Cancelar descarga") }
+                }
+                DlStatus.Done -> Text("Listo. Guardado en: ${dl.message}", color = MaterialTheme.colorScheme.primary)
+                DlStatus.Failed -> Text("No se pudo descargar.\n${dl.message}", color = MaterialTheme.colorScheme.error)
+                DlStatus.Cancelled -> Text("Descarga cancelada.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                DlStatus.Idle -> {}
             }
         }
     }

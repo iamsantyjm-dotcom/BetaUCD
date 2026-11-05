@@ -192,6 +192,12 @@ class UcdPrefs(ctx: Context) {
         get() = sp.getInt("bible_line_spacing", 1).coerceIn(0, 2)
         set(v) { sp.edit().putInt("bible_line_spacing", v).apply() }
 
+    // --- Descargas (yt-dlp) ---
+    /** Carpeta elegida para guardar las descargas (URI del selector de carpetas). null = Películas/UCD. */
+    var downloadTree: String?
+        get() = sp.getString("download_tree", null)
+        set(v) { sp.edit().apply { if (v == null) remove("download_tree") else putString("download_tree", v) }.apply() }
+
     // --- Continuar donde lo dejaste ---
     fun position(uri: String): Long = pos.getLong(uri, 0L)
     fun savePosition(uri: String, ms: Long) { pos.edit().putLong(uri, ms).apply() }
