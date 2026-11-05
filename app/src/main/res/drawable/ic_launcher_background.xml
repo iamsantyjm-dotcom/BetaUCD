@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Rosa lavanda en las esquinas y azul cielo en la diagonal -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="0" android:startY="0"
+                android:endX="108" android:endY="108">
+                <item android:offset="0" android:color="#FFCDA2E4" />
+                <item android:offset="0.5" android:color="#FFA9C4EC" />
+                <item android:offset="1" android:color="#FFBE9BE6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Azul violeta abajo a la izquierda -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="14" android:centerY="96"
+                android:gradientRadius="70">
+                <item android:offset="0" android:color="#B38C94DC" />
+                <item android:offset="1" android:color="#008C94DC" />
+            </gradient>
+        </aapt:attr>
+    </path>
+    <!-- Luz suave arriba a la izquierda -->
+    <path android:pathData="M0,0h108v108h-108z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="radial" android:centerX="18" android:centerY="12"
+                android:gradientRadius="60">
+                <item android:offset="0" android:color="#66FFFFFF" />
+                <item android:offset="1" android:color="#00FFFFFF" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>

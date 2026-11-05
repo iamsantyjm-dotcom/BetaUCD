@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <!-- Sombra suave del asterisco -->
+    <group android:rotation="0" android:pivotX="54" android:pivotY="54" android:translateY="1.6">
+        <path android:fillColor="#332B2E8A" android:pathData="M52.1,30 L55.9,30 A1.8,1.8 0 0 1 57.7,31.8 L57.7,76.2 A1.8,1.8 0 0 1 55.9,78 L52.1,78 A1.8,1.8 0 0 1 50.3,76.2 L50.3,31.8 A1.8,1.8 0 0 1 52.1,30 Z"/>
+    </group>
+    <group android:rotation="45" android:pivotX="54" android:pivotY="54" android:translateY="1.6">
+        <path android:fillColor="#332B2E8A" android:pathData="M52.1,30 L55.9,30 A1.8,1.8 0 0 1 57.7,31.8 L57.7,76.2 A1.8,1.8 0 0 1 55.9,78 L52.1,78 A1.8,1.8 0 0 1 50.3,76.2 L50.3,31.8 A1.8,1.8 0 0 1 52.1,30 Z"/>
+    </group>
+    <group android:rotation="90" android:pivotX="54" android:pivotY="54" android:translateY="1.6">
+        <path android:fillColor="#332B2E8A" android:pathData="M52.1,30 L55.9,30 A1.8,1.8 0 0 1 57.7,31.8 L57.7,76.2 A1.8,1.8 0 0 1 55.9,78 L52.1,78 A1.8,1.8 0 0 1 50.3,76.2 L50.3,31.8 A1.8,1.8 0 0 1 52.1,30 Z"/>
+    </group>
+    <group android:rotation="135" android:pivotX="54" android:pivotY="54" android:translateY="1.6">
+        <path android:fillColor="#332B2E8A" android:pathData="M52.1,30 L55.9,30 A1.8,1.8 0 0 1 57.7,31.8 L57.7,76.2 A1.8,1.8 0 0 1 55.9,78 L52.1,78 A1.8,1.8 0 0 1 50.3,76.2 L50.3,31.8 A1.8,1.8 0 0 1 52.1,30 Z"/>
+    </group>
+    <!-- Asterisco blanco de ocho rayos -->
+    <group android:rotation="0" android:pivotX="54" android:pivotY="54" android:translateY="0">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M52.1,30 L55.9,30 A1.8,1.8 0 0 1 57.7,31.8 L57.7,76.2 A1.8,1.8 0 0 1 55.9,78 L52.1,78 A1.8,1.8 0 0 1 50.3,76.2 L50.3,31.8 A1.8,1.8 0 0 1 52.1,30 Z"/>
+    </group>
+    <group android:rotation="45" android:pivotX="54" android:pivotY="54" android:translateY="0">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M52.1,30 L55.9,30 A1.8,1.8 0 0 1 57.7,31.8 L57.7,76.2 A1.8,1.8 0 0 1 55.9,78 L52.1,78 A1.8,1.8 0 0 1 50.3,76.2 L50.3,31.8 A1.8,1.8 0 0 1 52.1,30 Z"/>
+    </group>
+    <group android:rotation="90" android:pivotX="54" android:pivotY="54" android:translateY="0">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M52.1,30 L55.9,30 A1.8,1.8 0 0 1 57.7,31.8 L57.7,76.2 A1.8,1.8 0 0 1 55.9,78 L52.1,78 A1.8,1.8 0 0 1 50.3,76.2 L50.3,31.8 A1.8,1.8 0 0 1 52.1,30 Z"/>
+    </group>
+    <group android:rotation="135" android:pivotX="54" android:pivotY="54" android:translateY="0">
+        <path android:fillColor="#FFFFFFFF" android:pathData="M52.1,30 L55.9,30 A1.8,1.8 0 0 1 57.7,31.8 L57.7,76.2 A1.8,1.8 0 0 1 55.9,78 L52.1,78 A1.8,1.8 0 0 1 50.3,76.2 L50.3,31.8 A1.8,1.8 0 0 1 52.1,30 Z"/>
+    </group>
+    <!-- Play con degradado lavanda a azul -->
+    <path android:pathData="M47.2,47.0 Q47.2,43.5 50.23,45.25 L62.37,52.25 Q65.4,54 62.37,55.75 L50.23,62.75 Q47.2,64.5 47.2,61.0 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient android:type="linear" android:startX="47" android:startY="64"
+                android:endX="66" android:endY="44">
+                <item android:offset="0" android:color="#FFC39EEA" />
+                <item android:offset="1" android:color="#FFA9C8F0" />
+            </gradient>
+        </aapt:attr>
+    </path>
+</vector>
