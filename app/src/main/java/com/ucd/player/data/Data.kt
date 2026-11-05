@@ -2,6 +2,7 @@ package com.ucd.player.data
 
 import android.content.ContentUris
 import android.content.Context
+import android.os.Build
 import android.provider.MediaStore
 import androidx.room.*
 import kotlinx.coroutines.Dispatchers
@@ -13,19 +14,23 @@ data class VideoItem(
     val id: Long, val uri: String, val title: String, val durationMs: Long, val folder: String,
     val dateAdded: Long = 0L,   // segundos (epoch)
     val sizeBytes: Long = 0L,
+    /** Carpeta real del archivo, por ejemplo "Movies/UCD/" (vacío en Android 9 o menor). */
+    val relativePath: String = "",
 )
 
 class MediaStoreScanner(private val ctx: Context) {
     suspend fun scan(): List<VideoItem> = withContext(Dispatchers.IO) {
         val collection = MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-        val proj = arrayOf(
-            MediaStore.Video.Media._ID,
-            MediaStore.Video.Media.DISPLAY_NAME,
-            MediaStore.Video.Media.DURATION,
-            MediaStore.Video.Media.BUCKET_DISPLAY_NAME,
-            MediaStore.Video.Media.DATE_ADDED,
-            MediaStore.Video.Media.SIZE,
-        )
+        val hasRel = Build.VERSION.SDK_INT >= 29
+        val proj = buildList {
+            add(MediaStore.Video.Media._ID)
+            add(MediaStore.Video.Media.DISPLAY_NAME)
+            add(MediaStore.Video.Media.DURATION)
+            add(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
+            add(MediaStore.Video.Media.DATE_ADDED)
+            add(MediaStore.Video.Media.SIZE)
+            if (hasRel) add(MediaStore.Video.Media.RELATIVE_PATH)
+        }.toTypedArray()
         val out = mutableListOf<VideoItem>()
         ctx.contentResolver.query(
             collection, proj, null, null,
@@ -37,6 +42,7 @@ class MediaStoreScanner(private val ctx: Context) {
             val iFolder = c.getColumnIndexOrThrow(MediaStore.Video.Media.BUCKET_DISPLAY_NAME)
             val iDate = c.getColumnIndexOrThrow(MediaStore.Video.Media.DATE_ADDED)
             val iSize = c.getColumnIndexOrThrow(MediaStore.Video.Media.SIZE)
+            val iRel = if (hasRel) c.getColumnIndex(MediaStore.Video.Media.RELATIVE_PATH) else -1
             while (c.moveToNext()) {
                 val id = c.getLong(iId)
                 out += VideoItem(
@@ -44,6 +50,7 @@ class MediaStoreScanner(private val ctx: Context) {
                     (c.getString(iName) ?: "video").substringBeforeLast('.'), c.getLong(iDur),
                     c.getString(iFolder) ?: "Sin carpeta",
                     c.getLong(iDate), c.getLong(iSize),
+                    if (iRel >= 0) c.getString(iRel) ?: "" else "",
                 )
             }
         }
@@ -87,6 +94,7 @@ interface PlaylistDao {
     suspend fun nextPosition(id: Long): Int
 
     @Insert suspend fun insertItem(i: PlaylistItemEntity)
+    @Query("DELETE FROM playlist_items WHERE videoUri IN (:uris)") suspend fun removeVideos(uris: List<String>)
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertItems(i: List<PlaylistItemEntity>)
     @Query("DELETE FROM playlist_items WHERE playlistId = :id") suspend fun clearItems(id: Long)
 

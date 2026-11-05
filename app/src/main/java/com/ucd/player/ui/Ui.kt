@@ -7,6 +7,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.widget.Toast
 import android.os.Build
 import android.provider.MediaStore
 import android.util.LruCache
@@ -14,6 +15,7 @@ import android.content.Intent
 import android.util.Size
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -173,7 +175,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     LaunchedEffect(resumeTick) { granted = hasAccess() }
 
     var videos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
-    LaunchedEffect(granted, resumeTick) {
+    var reloadTick by remember { mutableIntStateOf(0) }
+    LaunchedEffect(granted, resumeTick, reloadTick) {
         if (granted) {
             val fresh = MediaStoreScanner(ctx).scan()
             if (fresh != videos) videos = fresh
@@ -187,6 +190,28 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     var folder by remember { mutableStateOf<String?>(null) }
     var open by remember { mutableStateOf<PlaylistEntity?>(null) }
     var addTarget by remember { mutableStateOf<VideoItem?>(null) }
+    var videoMenu by remember { mutableStateOf<VideoItem?>(null) }
+    var renameTarget by remember { mutableStateOf<VideoItem?>(null) }
+    var moveTarget by remember { mutableStateOf<VideoItem?>(null) }
+    var deleteVideoTarget by remember { mutableStateOf<VideoItem?>(null) }
+    // Lo que hay que terminar cuando el usuario acepta la ventana de permiso de Android
+    var pendingGrant by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val grantLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
+        val next = pendingGrant
+        pendingGrant = null
+        if (r.resultCode == android.app.Activity.RESULT_OK) next?.invoke()
+    }
+    /** Ejecuta una operación sobre un video; si Android pide permiso, lo pide y la repite. */
+    fun runOp(op: () -> VideoOps.Result, retryAfterGrant: Boolean = true, done: () -> Unit = {}) {
+        when (val r = op()) {
+            is VideoOps.Result.Ok -> { done(); reloadTick++ }
+            is VideoOps.Result.NeedsGrant -> {
+                pendingGrant = { if (retryAfterGrant) runOp(op, false, done) else { done(); reloadTick++ } }
+                grantLauncher.launch(IntentSenderRequest.Builder(r.sender).build())
+            }
+            is VideoOps.Result.Error -> Toast.makeText(ctx, r.message, Toast.LENGTH_LONG).show()
+        }
+    }
     var deleteTarget by remember { mutableStateOf<PlaylistEntity?>(null) }
     var newListDialog by remember { mutableStateOf(false) }
     var crash by remember {
@@ -335,6 +360,15 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                     },
                     actions = {
                         AnimatedVisibility(
+                            visible = open == null && tab == 0 && !videoSearchOpen,
+                            enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
+                            exit = scaleOut() + fadeOut(),
+                        ) {
+                            GlassIconButton(onClick = { ctx.startActivity(Intent(ctx, DownloadActivity::class.java)) }) {
+                                Icon(Icons.Rounded.Download, "Descargar video")
+                            }
+                        }
+                        AnimatedVisibility(
                             visible = open == null && ((tab == 0 && !videoSearchOpen) || (tab == 2 && searchHidden)),
                             enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
                             exit = scaleOut() + fadeOut(),
@@ -385,11 +419,6 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                                         text = { Text("Tema") },
                                         onClick = { menuOpen = false; themeDialog = true },
                                         leadingIcon = { Icon(Icons.Rounded.Palette, null) },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Descargar video") },
-                                        onClick = { menuOpen = false; ctx.startActivity(Intent(ctx, DownloadActivity::class.java)) },
-                                        leadingIcon = { Icon(Icons.Rounded.Download, null) },
                                     )
                                     DropdownMenuItem(
                                         text = { Text("Ajustes") },
@@ -485,7 +514,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                     onFolderMenu = { folderMenu = it },
                     onOpenFolder = { folder = it },
                     onPlay = { list, i -> play(list.map { it.uri }, list.map { it.title }, i) },
-                    onAdd = { addTarget = it },
+                    onAdd = { videoMenu = it },
                     onGrant = { videoLauncher.launch(videoPerms) },
                 )
                 k.tab == 2 -> BibleTab(
@@ -575,6 +604,133 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
             },
             confirmButton = {},
             dismissButton = { TextButton(onClick = { addTarget = null }) { Text("Cerrar") } },
+        )
+    }
+
+    videoMenu?.let { v ->
+        GlassAlertDialog(
+            onDismissRequest = { videoMenu = null },
+            title = {
+                Text(
+                    v.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            text = {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassMenuItem("Añadir a lista", Icons.Rounded.Add) { videoMenu = null; addTarget = v }
+                    GlassMenuItem("Renombrar", Icons.Rounded.Edit) { videoMenu = null; renameTarget = v }
+                    GlassMenuItem("Mover a otra carpeta", Icons.Rounded.FolderOpen) { videoMenu = null; moveTarget = v }
+                    GlassMenuItem("Compartir", Icons.Rounded.Share) {
+                        videoMenu = null
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "video/*"
+                            putExtra(Intent.EXTRA_STREAM, Uri.parse(v.uri))
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        runCatching { ctx.startActivity(Intent.createChooser(send, "Compartir video")) }
+                    }
+                    GlassMenuItem("Eliminar", Icons.Rounded.Delete) { videoMenu = null; deleteVideoTarget = v }
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
+                    TextButton(onClick = { videoMenu = null }, modifier = Modifier.fillMaxWidth()) { Text("Cancelar") }
+                }
+            },
+            confirmButton = {},
+        )
+    }
+
+    renameTarget?.let { v ->
+        var name by remember(v.id) { mutableStateOf(v.title) }
+        GlassAlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Renombrar video") },
+            text = {
+                OutlinedTextField(
+                    value = name, onValueChange = { name = it }, singleLine = true,
+                    label = { Text("Nombre") },
+                    shape = rs(18.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f),
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = name.isNotBlank(),
+                    onClick = {
+                        val target = v
+                        renameTarget = null
+                        runOp({ VideoOps.rename(ctx, Uri.parse(target.uri), name) })
+                    },
+                ) { Text("Guardar") }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancelar") } },
+        )
+    }
+
+    moveTarget?.let { v ->
+        val dests = remember(videos, v) {
+            videos.map { it.relativePath }
+                .filter { p -> p.isNotBlank() && VideoOps.ROOTS.any { p.startsWith(it) } && p != v.relativePath }
+                .distinct().sorted()
+        }
+        var newFolder by remember(v.id) { mutableStateOf("") }
+        fun moveTo(path: String) {
+            val target = v
+            moveTarget = null
+            runOp({ VideoOps.move(ctx, Uri.parse(target.uri), path) })
+        }
+        GlassAlertDialog(
+            onDismissRequest = { moveTarget = null },
+            title = { Text("Mover a otra carpeta") },
+            text = {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        if (dests.isEmpty()) Text("No hay otras carpetas. Crea una nueva abajo.")
+                        dests.forEach { p -> GlassMenuItem(p.trimEnd('/'), Icons.Rounded.Folder) { moveTo(p) } }
+                    }
+                    OutlinedTextField(
+                        value = newFolder, onValueChange = { newFolder = it }, singleLine = true,
+                        label = { Text("Nueva carpeta en Movies") },
+                        shape = rs(18.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f),
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        ),
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newFolder.isNotBlank(),
+                    onClick = { moveTo("Movies/" + newFolder.replace(Regex("[\\\\/:*?\"<>|]"), "").trim()) },
+                ) { Text("Crear y mover") }
+            },
+            dismissButton = { TextButton(onClick = { moveTarget = null }) { Text("Cancelar") } },
+        )
+    }
+
+    deleteVideoTarget?.let { v ->
+        GlassAlertDialog(
+            onDismissRequest = { deleteVideoTarget = null },
+            title = { Text("Eliminar video") },
+            text = { Text("¿Eliminar \"${v.title}\" del dispositivo? Esta acción no se puede deshacer.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val target = v
+                    deleteVideoTarget = null
+                    runOp(
+                        { VideoOps.delete(ctx, listOf(Uri.parse(target.uri))) },
+                        retryAfterGrant = false,
+                        done = { scope.launch { dao.removeVideos(listOf(target.uri)) } },
+                    )
+                }) { Text("Eliminar") }
+            },
+            dismissButton = { TextButton(onClick = { deleteVideoTarget = null }) { Text("Cancelar") } },
         )
     }
 
@@ -875,7 +1031,7 @@ private fun FilterPills(selected: VideoFilter, onSelect: (VideoFilter) -> Unit) 
 }
 
 @Composable
-private fun FilterPill(text: String, selected: Boolean, onClick: () -> Unit) {
+internal fun FilterPill(text: String, selected: Boolean, onClick: () -> Unit) {
     val st = LocalUcdStyle.current
     // Seleccionado: amarillo pastel sólido (en los temas planos, el color de selección del tema)
     val selBg = if (st.flat) st.selFill else Color(0xFFFFF48A)
@@ -1271,7 +1427,7 @@ private fun VideoCollection(
                         )
                     },
                     trailingContent = {
-                        IconButton(onClick = { onAdd(v) }) { Icon(Icons.Rounded.MoreVert, "Añadir a lista") }
+                        IconButton(onClick = { onAdd(v) }) { Icon(Icons.Rounded.MoreVert, "Opciones del video") }
                     },
                 )
             }
@@ -1321,7 +1477,7 @@ private fun VideoTile(
                 modifier = Modifier.weight(1f).padding(start = 8.dp, top = 2.dp, bottom = 2.dp),
             )
             IconButton(onClick = onAdd, modifier = Modifier.size(32.dp)) {
-                Icon(Icons.Rounded.MoreVert, "Añadir a lista", Modifier.size(18.dp))
+                Icon(Icons.Rounded.MoreVert, "Opciones del video", Modifier.size(18.dp))
             }
         }
     }
