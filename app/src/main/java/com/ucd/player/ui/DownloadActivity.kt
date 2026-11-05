@@ -107,6 +107,8 @@ private fun DownloadScreen(initialUrl: String, onBack: () -> Unit) {
     var quality by remember { mutableStateOf<Int?>(null) }   // null = mejor
     var audioOnly by remember { mutableStateOf(false) }
     var showFormats by remember { mutableStateOf(false) }
+    var updating by remember { mutableStateOf(false) }
+    var updateMsg by remember { mutableStateOf<String?>(null) }
     val prefs = remember { UcdPrefs(ctx) }
     var tree by remember { mutableStateOf(prefs.downloadTree) }
     val dl by Downloads.state.collectAsState()
@@ -229,6 +231,20 @@ private fun DownloadScreen(initialUrl: String, onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(if (audioOnly) "Descargar audio" else "Descargar") }
             }
+
+            TextButton(
+                enabled = !running && !updating && !loading,
+                onClick = {
+                    updating = true; updateMsg = null
+                    scope.launch {
+                        Ytdl.update(ctx)
+                            .onSuccess { updateMsg = "yt-dlp actualizado ($it)." }
+                            .onFailure { updateMsg = "No se pudo actualizar: " + friendly(it).lines().last() }
+                        updating = false
+                    }
+                },
+            ) { Text(if (updating) "Actualizando yt-dlp…" else "Actualizar yt-dlp") }
+            updateMsg?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 
             // Estado de la descarga (se ve aunque vuelvas desde la notificación)
             when (dl.status) {

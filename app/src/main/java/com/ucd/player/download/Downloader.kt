@@ -55,57 +55,78 @@ object Downloader {
         val id = "ucd-" + System.currentTimeMillis()
         processId = id
         try {
-            val r = YoutubeDLRequest(req.url)
-            r.addOption("--no-playlist")
-            r.addOption("--newline")
-            r.addOption("--no-mtime")
-            r.addOption("--windows-filenames")
-            r.addOption("-N", "4")
-            r.addOption("-f", selector(req.height, req.audioOnly))
-            r.addOption("-o", tmp.absolutePath + "/%(title).100B.%(ext)s")
-            if (req.audioOnly) {
-                r.addOption("-x")
-                r.addOption("--audio-format", "m4a")
-            } else {
-                r.addOption("--merge-output-format", "mp4")
-                // Al unir video y audio, que ffmpeg deje el índice al principio
-                r.addOption("--postprocessor-args", "Merger+ffmpeg:-movflags +faststart")
-            }
-
             val parts = req.parts.coerceAtLeast(1)
             var part = 0
-            Downloads.set(DlState(DlStatus.Running, req.title, 0f, "Descargando…"))
-            YoutubeDL.getInstance().execute(r, id) { _, _, line ->
-                val cur = Downloads.state.value
-                when {
-                    line.contains("[download] Destination:") -> part++
-                    line.startsWith("[Merger]") ->
-                        Downloads.set(cur.copy(progress = -1f, phase = "Uniendo video y audio…", detail = ""))
-                    line.startsWith("[VideoRemuxer]") ->
-                        Downloads.set(cur.copy(progress = -1f, phase = "Convirtiendo a MP4…", detail = ""))
-                    line.startsWith("[ExtractAudio]") ->
-                        Downloads.set(cur.copy(progress = -1f, phase = "Extrayendo audio…", detail = ""))
-                    line.startsWith("[Fixup") ->
-                        Downloads.set(cur.copy(progress = -1f, phase = "Ajustando el archivo…", detail = ""))
-                    else -> {
-                        val m = PCT.find(line)
-                        if (m != null) {
-                            val pct = m.groupValues[1].toFloatOrNull() ?: 0f
-                            val idx = (part - 1).coerceIn(0, parts - 1)
-                            val overall = ((idx + pct / 100f) / parts).coerceIn(0f, 0.99f)
-                            val speed = SPEED.find(line)?.groupValues?.get(1)
-                            val eta = ETA.find(line)?.groupValues?.get(1)
-                            val detail = listOfNotNull(speed, eta?.let { "quedan $it" }).joinToString(" · ")
-                            Downloads.set(
-                                cur.copy(
-                                    progress = overall,
-                                    phase = if (parts > 1) "Descargando (${idx + 1}/$parts)…" else "Descargando…",
-                                    detail = detail,
-                                ),
-                            )
+
+            fun build(altClients: Boolean): YoutubeDLRequest {
+                val r = YoutubeDLRequest(req.url)
+                r.addOption("--no-playlist")
+                r.addOption("--newline")
+                r.addOption("--no-mtime")
+                r.addOption("--windows-filenames")
+                r.addOption("-N", "4")
+                r.addOption("-f", selector(req.height, req.audioOnly))
+                r.addOption("-o", tmp.absolutePath + "/%(title).100B.%(ext)s")
+                // Reintento tras un 403: clientes de YouTube que no exigen token
+                if (altClients) r.addOption("--extractor-args", "youtube:player_client=android_vr,tv")
+                if (req.audioOnly) {
+                    r.addOption("-x")
+                    r.addOption("--audio-format", "m4a")
+                } else {
+                    r.addOption("--merge-output-format", "mp4")
+                    // Al unir video y audio, que ffmpeg deje el índice al principio
+                    r.addOption("--postprocessor-args", "Merger+ffmpeg:-movflags +faststart")
+                }
+                return r
+            }
+
+            fun runOnce(r: YoutubeDLRequest) {
+                part = 0
+                Downloads.set(DlState(DlStatus.Running, req.title, 0f, "Descargando…"))
+                YoutubeDL.getInstance().execute(r, id) { _, _, line ->
+                    val cur = Downloads.state.value
+                    when {
+                        line.contains("[download] Destination:") -> part++
+                        line.startsWith("[Merger]") ->
+                            Downloads.set(cur.copy(progress = -1f, phase = "Uniendo video y audio…", detail = ""))
+                        line.startsWith("[VideoRemuxer]") ->
+                            Downloads.set(cur.copy(progress = -1f, phase = "Convirtiendo a MP4…", detail = ""))
+                        line.startsWith("[ExtractAudio]") ->
+                            Downloads.set(cur.copy(progress = -1f, phase = "Extrayendo audio…", detail = ""))
+                        line.startsWith("[Fixup") ->
+                            Downloads.set(cur.copy(progress = -1f, phase = "Ajustando el archivo…", detail = ""))
+                        else -> {
+                            val m = PCT.find(line)
+                            if (m != null) {
+                                val pct = m.groupValues[1].toFloatOrNull() ?: 0f
+                                val idx = (part - 1).coerceIn(0, parts - 1)
+                                val overall = ((idx + pct / 100f) / parts).coerceIn(0f, 0.99f)
+                                val speed = SPEED.find(line)?.groupValues?.get(1)
+                                val eta = ETA.find(line)?.groupValues?.get(1)
+                                val detail = listOfNotNull(speed, eta?.let { "quedan $it" }).joinToString(" · ")
+                                Downloads.set(
+                                    cur.copy(
+                                        progress = overall,
+                                        phase = if (parts > 1) "Descargando (${idx + 1}/$parts)…" else "Descargando…",
+                                        detail = detail,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
+            }
+
+            try {
+                runOnce(build(false))
+            } catch (e: Exception) {
+                val blocked = (e.message ?: "").contains("403") || (e.message ?: "").contains("Forbidden")
+                if (!blocked || cancelRequested) throw e
+                // 403: actualizar yt-dlp y reintentar con otros clientes
+                Downloads.set(DlState(DlStatus.Running, req.title, -1f, "Error 403: actualizando yt-dlp…"))
+                Ytdl.update(app)
+                if (cancelRequested) throw CancellationException("Cancelado")
+                runOnce(build(true))
             }
 
             if (cancelRequested) throw CancellationException("Cancelado")

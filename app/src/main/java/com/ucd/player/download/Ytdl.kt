@@ -3,6 +3,7 @@ package com.ucd.player.download
 import android.content.Context
 import com.yausername.ffmpeg.FFmpeg
 import com.yausername.youtubedl_android.YoutubeDL
+import com.yausername.youtubedl_android.YoutubeDL.UpdateChannel
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -63,6 +64,19 @@ object Ytdl {
                 FFmpeg.getInstance().init(app)
                 ready = true
             }
+        }
+    }
+
+    /** Baja la versión más reciente de yt-dlp (canal nightly): YouTube cambia seguido y lo viejo deja de funcionar. */
+    suspend fun update(ctx: Context): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            ensureInit(ctx)
+            val st = YoutubeDL.getInstance().updateYoutubeDL(ctx.applicationContext, UpdateChannel.NIGHTLY)
+            Result.success(st?.toString() ?: "listo")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Throwable) {
+            Result.failure(e)
         }
     }
 
