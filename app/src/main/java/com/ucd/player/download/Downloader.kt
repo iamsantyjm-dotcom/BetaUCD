@@ -3,7 +3,6 @@ package com.ucd.player.download
 import android.content.Context
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
-import com.ucd.player.data.UcdPrefs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -20,6 +19,8 @@ object Downloader {
         val audioOnly: Boolean,
         /** 2 si hay que bajar video y audio por separado y unirlos; 1 si es un solo archivo. */
         val parts: Int,
+        /** Carpeta de destino elegida al añadirla a la cola (null = predeterminada). */
+        val tree: String? = null,
     )
 
     @Volatile private var processId: String? = null
@@ -144,7 +145,7 @@ object Downloader {
             }
 
             Downloads.set(Downloads.state.value.copy(progress = -1f, phase = "Guardando en la carpeta…", detail = ""))
-            val saved = Saver.save(app, out, UcdPrefs(app).downloadTree)
+            val saved = Saver.save(app, out, req.tree)
             Downloads.set(DlState(DlStatus.Done, req.title, 1f, "", "", saved.label, saved.uri?.toString() ?: ""))
             saved.label
         } finally {

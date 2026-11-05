@@ -20,9 +20,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-/** Servicio en primer plano: mantiene viva la descarga (con notificación y botón Cancelar) aunque salgas de la app. */
+/**
+ * Servicio en primer plano: procesa la cola de descargas de a una, con notificación y botón Cancelar
+ * (cancela la que está bajando y sigue con la siguiente), aunque salgas de la app.
+ */
 class DownloadService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var job: Job? = null
@@ -31,10 +36,15 @@ class DownloadService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        DlQueue.init(this)
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createChannel()
 
-        // Botón "Cancelar" de la notificación
+        // Botón "Cancelar" de la notificación: cancela la descarga actual; la cola sigue
         if (intent?.action == ACTION_CANCEL) {
             Downloader.cancel()
             if (job?.isActive != true) stopSelf()
@@ -42,75 +52,102 @@ class DownloadService : Service() {
         }
 
         // Obligatorio: pasar a primer plano enseguida (si no, Android cierra la app)
-        val title = intent?.getStringExtra(EXTRA_TITLE) ?: "Video"
+        val first = DlQueue.nextQueued()
         ServiceCompat.startForeground(
-            this, NOTIF_ID, buildNotif(title, -1f, "Preparando…"),
+            this, NOTIF_ID, buildNotif(first?.title ?: "Descargas", -1f, "Preparando…"),
             ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,
         )
-
-        val url = intent?.getStringExtra(EXTRA_URL)
-        if (url == null || job?.isActive == true) {
-            if (job?.isActive != true) stopSelf()
+        if (first == null && job?.isActive != true) {
+            ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+            stopSelf()
             return START_NOT_STICKY
         }
-        val req = Downloader.Request(
-            url = url,
-            title = title,
-            height = intent.getIntExtra(EXTRA_HEIGHT, 0),
-            audioOnly = intent.getBooleanExtra(EXTRA_AUDIO, false),
-            parts = intent.getIntExtra(EXTRA_PARTS, 1),
-        )
+        pump()
+        return START_NOT_STICKY
+    }
 
-        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-        wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ucd:download").apply { acquire(3 * 60 * 60 * 1000L) }
+    /** Arranca el procesamiento de la cola si no está en marcha. */
+    private fun pump() {
+        if (job?.isActive == true) return
+        DlQueue.setActive(true)
+        if (wake?.isHeld != true) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            wake = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "ucd:download").apply { acquire(3 * 60 * 60 * 1000L) }
+        }
 
         // Refresca la notificación con el progreso (solo cuando cambia el porcentaje o la fase)
-        notifJob = scope.launch {
-            var last = ""
-            Downloads.state.collect { s ->
-                if (s.status == DlStatus.Running) {
-                    val key = (s.progress * 100).toInt().toString() + "|" + s.phase
-                    if (key != last) {
-                        last = key
-                        val text = if (s.detail.isNotBlank()) s.phase + " · " + s.detail else s.phase
-                        notify(NOTIF_ID, buildNotif(s.title, s.progress, text))
+        if (notifJob?.isActive != true) {
+            notifJob = scope.launch {
+                var last = ""
+                Downloads.state.collect { s ->
+                    if (s.status == DlStatus.Running) {
+                        val waiting = DlQueue.items.value.count { it.status == JobStatus.Queued }
+                        val key = (s.progress * 100).toInt().toString() + "|" + s.phase + "|" + waiting
+                        if (key != last) {
+                            last = key
+                            var text = if (s.detail.isNotBlank()) s.phase + " · " + s.detail else s.phase
+                            if (waiting > 0) text += " · +$waiting en cola"
+                            notify(NOTIF_ID, buildNotif(s.title, s.progress, text))
+                        }
                     }
                 }
             }
         }
 
         job = scope.launch {
-            var finalTitle = ""
-            var finalText = ""
-            try {
-                val where = Downloader.download(applicationContext, req)
-                finalTitle = "Descarga completa"
-                finalText = req.title + " · " + where
-            } catch (e: Throwable) {
-                if (e is CancellationException || Downloader.cancelRequested) {
-                    Downloads.set(DlState(DlStatus.Cancelled, req.title))
-                    finalTitle = "Descarga cancelada"
-                    finalText = req.title
-                } else {
-                    val msg = friendlyError(e)
-                    Downloads.set(DlState(DlStatus.Failed, req.title, message = msg))
-                    finalTitle = "No se pudo descargar"
-                    finalText = msg
-                }
-            } finally {
-                notifJob?.cancel()
-                runCatching { if (wake?.isHeld == true) wake?.release() }
+            while (isActive) {
+                val next = DlQueue.nextQueued() ?: break
+                runOne(next)
             }
-            ServiceCompat.stopForeground(this@DownloadService, ServiceCompat.STOP_FOREGROUND_REMOVE)
-            notify(NOTIF_ID + 1, buildFinalNotif(finalTitle, finalText))
-            stopSelf()
+            withContext(Dispatchers.Main) { finishOrRestart() }
         }
-        return START_NOT_STICKY
+    }
+
+    /** Corre en el hilo principal, igual que onStartCommand, así no se pierde ninguna descarga nueva. */
+    private fun finishOrRestart() {
+        if (DlQueue.nextQueued() != null) {
+            job = null
+            pump()
+            return
+        }
+        notifJob?.cancel()
+        runCatching { if (wake?.isHeld == true) wake?.release() }
+        DlQueue.setActive(false)
+        ServiceCompat.stopForeground(this, ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    private suspend fun runOne(e: DlEntry) {
+        DlQueue.markRunning(e.id)
+        val req = Downloader.Request(e.url, e.title, e.height, e.audioOnly, e.parts, e.tree)
+        var finalTitle: String
+        var finalText: String
+        try {
+            val where = Downloader.download(applicationContext, req)
+            DlQueue.finish(e.id, JobStatus.Done, where, Downloads.state.value.uri)
+            finalTitle = "Descarga completa"
+            finalText = e.title + " · " + where
+        } catch (t: Throwable) {
+            if (t is CancellationException || Downloader.cancelRequested) {
+                Downloads.set(DlState(DlStatus.Cancelled, e.title))
+                DlQueue.finish(e.id, JobStatus.Cancelled)
+                finalTitle = "Descarga cancelada"
+                finalText = e.title
+            } else {
+                val msg = friendlyError(t)
+                Downloads.set(DlState(DlStatus.Failed, e.title, message = msg))
+                DlQueue.finish(e.id, JobStatus.Failed, msg)
+                finalTitle = "No se pudo descargar"
+                finalText = e.title + " · " + msg.lines().first()
+            }
+        }
+        notify(NOTIF_ID + 1 + (e.id % 1000).toInt(), buildFinalNotif(finalTitle, finalText))
     }
 
     override fun onDestroy() {
         if (job?.isActive == true) Downloader.cancel()
         runCatching { if (wake?.isHeld == true) wake?.release() }
+        DlQueue.setActive(false)
         scope.cancel()
         super.onDestroy()
     }
@@ -164,22 +201,22 @@ class DownloadService : Service() {
 
     companion object {
         const val ACTION_CANCEL = "com.ucd.player.download.CANCEL"
-        private const val EXTRA_URL = "url"
-        private const val EXTRA_TITLE = "title"
-        private const val EXTRA_HEIGHT = "height"
-        private const val EXTRA_AUDIO = "audio"
-        private const val EXTRA_PARTS = "parts"
         private const val CHANNEL = "ucd_downloads"
         private const val NOTIF_ID = 4101
 
-        fun start(ctx: Context, url: String, title: String, height: Int, audioOnly: Boolean, parts: Int) {
-            val i = Intent(ctx, DownloadService::class.java)
-                .putExtra(EXTRA_URL, url)
-                .putExtra(EXTRA_TITLE, title)
-                .putExtra(EXTRA_HEIGHT, height)
-                .putExtra(EXTRA_AUDIO, audioOnly)
-                .putExtra(EXTRA_PARTS, parts)
-            ContextCompat.startForegroundService(ctx, i)
+        /** Añade una descarga a la cola y pone el servicio a trabajar. Devuelve false si ya estaba en la cola. */
+        fun enqueue(
+            ctx: Context, url: String, title: String, height: Int, audioOnly: Boolean, parts: Int, tree: String?,
+        ): Boolean {
+            DlQueue.init(ctx)
+            if (!DlQueue.add(url, title, height, audioOnly, parts, tree)) return false
+            kick(ctx)
+            return true
+        }
+
+        /** Arranca (o reanuda) el procesamiento de la cola. */
+        fun kick(ctx: Context) {
+            ContextCompat.startForegroundService(ctx, Intent(ctx, DownloadService::class.java))
         }
     }
 }

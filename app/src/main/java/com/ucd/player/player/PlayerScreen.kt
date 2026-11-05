@@ -65,7 +65,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -75,6 +78,8 @@ import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import com.ucd.player.data.Perf
@@ -84,6 +89,7 @@ import com.ucd.player.ui.prefetchThumbs
 import com.ucd.player.ui.theme.GlassAlertDialog
 import com.ucd.player.ui.theme.LocalUcdStyle
 import com.ucd.player.ui.theme.glass
+import com.ucd.player.ui.theme.glassBorder
 import com.ucd.player.ui.theme.rs
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
@@ -357,6 +363,57 @@ fun PlayerScreen(
     
     fun nextVideo() {
         if (player.hasNextMediaItem()) player.seekToNextMediaItem() else showHud("Último video")
+    }
+
+    // Vista previa del fotograma al deslizar la barra: un segundo reproductor en pausa y sin sonido que
+    // salta al instante elegido. El video principal (y el TV, si se proyecta) siguen sin tocarse.
+    var scrubMs by remember { mutableStateOf<Long?>(null) }
+    var scrubLast by remember { mutableLongStateOf(0L) }
+    var previewRatio by remember { mutableFloatStateOf(16f / 9f) }
+    var previewSrc by remember { mutableStateOf<String?>(null) }
+    var barHeightPx by remember { mutableIntStateOf(0) }
+    val previewPlayer = remember {
+        ExoPlayer.Builder(ctx).build().apply {
+            volume = 0f
+            playWhenReady = false
+            trackSelectionParameters = trackSelectionParameters.buildUpon()
+                .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build()
+            setSeekParameters(SeekParameters.EXACT)
+        }
+    }
+    DisposableEffect(previewPlayer) {
+        val l = object : Player.Listener {
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                if (videoSize.width > 0 && videoSize.height > 0) {
+                    previewRatio = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+                }
+            }
+        }
+        previewPlayer.addListener(l)
+        onDispose { previewPlayer.removeListener(l); previewPlayer.release() }
+    }
+    fun previewSource(): String? {
+        val pend = pendingSwap
+        if (pend != null && pend.first == mediaId) return Uri.fromFile(pend.second).toString()
+        val cur = player.currentMediaItem
+        return cur?.localConfiguration?.uri?.toString()
+            ?: cur?.requestMetadata?.mediaUri?.toString()
+            ?: mediaId.takeIf { it.isNotEmpty() }
+    }
+    val canPreview = !unseekable || mediaId in handled || pendingSwap?.first == mediaId
+    fun ensurePreview() {
+        val src = previewSource() ?: return
+        if (src == previewSrc) return
+        previewSrc = src
+        previewPlayer.setMediaItem(MediaItem.fromUri(src))
+        previewPlayer.prepare()
+        previewPlayer.pause()
+    }
+    // Lo dejo listo en cuanto aparecen los controles, para que el primer fotograma salga rápido
+    LaunchedEffect(mediaId, controlsVisible, pip, canPreview) {
+        if (controlsVisible && !pip && canPreview) ensurePreview()
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -644,8 +701,23 @@ fun PlayerScreen(
                         }
                     }
 
+                    // Fotograma exacto del punto al que se desliza la barra (solo se ve en el celular)
+                    run {
+                        val frac = if (durationMs > 0) (scrubLast.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
+                        val barHeight = with(LocalDensity.current) { barHeightPx.toDp() }
+                        ScrubPreviewCard(
+                            player = previewPlayer, ratio = previewRatio,
+                            shown = scrubMs != null && canPreview, timeMs = scrubLast, fraction = frac,
+                            modifier = Modifier.align(Alignment.BottomCenter)
+                                .fillMaxWidth(0.7f)
+                                .padding(bottom = barHeight + 20.dp),
+                        )
+                    }
+
                     Column(
-                        Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp).animateEnterExit(
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp)
+                            .onSizeChanged { barHeightPx = it.height }
+                            .animateEnterExit(
                             enter = slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it / 2 } + scaleIn(initialScale = 0.9f) + fadeIn(),
                             exit = slideOutVertically(tween(200)) { it / 2 } + fadeOut(),
                         ),
@@ -671,7 +743,17 @@ fun PlayerScreen(
                             SeekBar(
                                 position = positionMs, duration = durationMs,
                                 onSeek = { doSeek(it) },
-                                onPreview = { seekPreview = it },
+                                onPreview = { ms ->
+                                    seekPreview = ms
+                                    scrubMs = ms
+                                    if (ms != null) {
+                                        scrubLast = ms
+                                        if (canPreview) {
+                                            ensurePreview()
+                                            previewPlayer.seekTo(ms.coerceIn(0L, (durationMs - 1).coerceAtLeast(0L)))
+                                        }
+                                    }
+                                },
                                 onTouch = { poke() },
                                 modifier = Modifier.fillMaxWidth(),
                             )
@@ -876,6 +958,46 @@ private fun LevelIndicator(value: Float) {
                 color = color,
                 style = MaterialTheme.typography.labelSmall,
                 fontWeight = FontWeight.SemiBold,
+            )
+        }
+    }
+}
+
+/**
+ * Miniatura grande con el fotograma del instante que se está eligiendo en la barra. La superficie queda
+ * siempre conectada (transparente cuando no se usa) para que el fotograma aparezca al instante.
+ */
+@Composable
+private fun ScrubPreviewCard(
+    player: Player, ratio: Float, shown: Boolean, timeMs: Long, fraction: Float, modifier: Modifier = Modifier,
+) {
+    val cardH = 120.dp
+    val cardW = (cardH * ratio).coerceIn(80.dp, 220.dp)
+    BoxWithConstraints(modifier) {
+        val barW = maxWidth
+        val x = (barW * fraction - cardW / 2).coerceIn(0.dp, (barW - cardW).coerceAtLeast(0.dp))
+        Box(
+            Modifier
+                .offset(x = x)
+                .size(cardW, cardH)
+                .graphicsLayer { alpha = if (shown) 1f else 0f }
+                .clip(rs(14.dp))
+                .background(Color.Black)
+                .glassBorder(rs(14.dp)),
+        ) {
+            AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { c -> TextureView(c).also { player.setVideoTextureView(it) } },
+                onRelease = { player.clearVideoTextureView(it) },
+            )
+            Text(
+                text = formatTime(timeMs),
+                color = Color.White,
+                fontSize = 11.sp,
+                modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 6.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black.copy(alpha = 0.55f))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
             )
         }
     }

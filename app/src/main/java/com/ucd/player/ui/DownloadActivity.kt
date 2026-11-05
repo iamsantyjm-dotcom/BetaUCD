@@ -6,6 +6,7 @@ import android.content.Intent
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -59,7 +60,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.ucd.player.data.UcdPrefs
+import com.ucd.player.download.DlEntry
+import com.ucd.player.download.DlQueue
 import com.ucd.player.download.DlStatus
+import com.ucd.player.download.JobStatus
 import com.ucd.player.download.DownloadService
 import com.ucd.player.download.Downloader
 import com.ucd.player.download.Downloads
@@ -90,6 +94,7 @@ class DownloadActivity : ComponentActivity() {
             statusBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
+        DlQueue.init(this)
         val prefs = UcdPrefs(this)
         // Si llega desde "Compartir" de otra app, el enlace viene en el texto compartido
         val shared = if (intent?.action == Intent.ACTION_SEND) extractUrl(intent.getStringExtra(Intent.EXTRA_TEXT)) else null
@@ -121,7 +126,10 @@ private fun DownloadScreen(initialUrl: String, onBack: () -> Unit) {
     val prefs = remember { UcdPrefs(ctx) }
     var tree by remember { mutableStateOf(prefs.downloadTree) }
     val dl by Downloads.state.collectAsState()
-    val running = dl.status == DlStatus.Running
+    val entries by DlQueue.items.collectAsState()
+    val queueActive by DlQueue.active.collectAsState()
+    val running = entries.any { it.status == JobStatus.Running }
+    val busy = entries.any { it.status == JobStatus.Queued || it.status == JobStatus.Running }
 
     val pickFolder = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
         if (uri != null) {
@@ -242,10 +250,14 @@ private fun DownloadScreen(initialUrl: String, onBack: () -> Unit) {
                     GlassCard {
                         SectionLabel("Guardar en")
                         Text(Saver.label(tree), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(
+                            "Cada descarga usa la carpeta que había al añadirla a la cola.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            PillButton("Elegir carpeta", onClick = { pickFolder.launch(null) }, enabled = !running, filled = false)
+                            PillButton("Elegir carpeta", onClick = { pickFolder.launch(null) }, filled = false)
                             if (tree != null) {
-                                TextButton(onClick = { prefs.downloadTree = null; tree = null }, enabled = !running) {
+                                TextButton(onClick = { prefs.downloadTree = null; tree = null }) {
                                     Text("Usar predeterminada")
                                 }
                             }
@@ -253,58 +265,42 @@ private fun DownloadScreen(initialUrl: String, onBack: () -> Unit) {
                     }
 
                     PillButton(
-                        if (audioOnly) "Descargar audio" else "Descargar",
+                        when {
+                            busy -> "Añadir a la cola"
+                            audioOnly -> "Descargar audio"
+                            else -> "Descargar"
+                        },
                         onClick = {
                             val parts = if (!audioOnly && m.formats.any { it.hasVideo && !it.hasAudio }) 2 else 1
-                            DownloadService.start(ctx, m.pageUrl, m.title, quality ?: 0, audioOnly, parts)
+                            val added = DownloadService.enqueue(ctx, m.pageUrl, m.title, quality ?: 0, audioOnly, parts, tree)
+                            Toast.makeText(
+                                ctx, if (added) "Añadido a la cola" else "Esa descarga ya está en la cola", Toast.LENGTH_SHORT,
+                            ).show()
                         },
-                        enabled = !running,
                         modifier = Modifier.fillMaxWidth(),
                         icon = true,
                     )
                 }
 
-                // Estado de la descarga (se ve aunque vuelvas desde la notificación)
-                when (dl.status) {
-                    DlStatus.Running -> GlassCard {
-                        Text(dl.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
-                        Text(dl.phase, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        ProgressPill(dl.progress)
-                        val pct = if (dl.progress >= 0f) "${(dl.progress * 100).toInt()} %" else ""
-                        val line = listOf(pct, dl.detail).filter { it.isNotBlank() }.joinToString(" · ")
-                        if (line.isNotBlank()) Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        PillButton("Cancelar descarga", onClick = { Downloader.cancel() }, modifier = Modifier.fillMaxWidth(), filled = false)
-                    }
-                    DlStatus.Done -> GlassCard {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            BrandChip(Icons.Rounded.Download)
-                            Column {
-                                Text("Listo", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.primary)
-                                Text(
-                                    "Guardado en: ${dl.message}",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        if (dl.uri.isNotBlank()) {
-                            PillButton(
-                                "Reproducir",
-                                onClick = {
-                                    runCatching {
-                                        ctx.startActivity(PlayerActivity.intent(ctx, listOf(Uri.parse(dl.uri)), listOf(dl.title), 0))
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
+                // Cola e historial (se ven aunque vuelvas desde la notificación)
+                val ordered = remember(entries) {
+                    entries.filter { it.status == JobStatus.Running } +
+                        entries.filter { it.status == JobStatus.Queued } +
+                        entries.filter { it.status != JobStatus.Running && it.status != JobStatus.Queued }
+                            .sortedByDescending { it.at }
+                }
+                if (ordered.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        SectionLabel("Descargas")
+                        Spacer(Modifier.weight(1f))
+                        if (ordered.any { it.status != JobStatus.Running && it.status != JobStatus.Queued }) {
+                            TextButton(onClick = { DlQueue.clearFinished() }) { Text("Limpiar historial") }
                         }
                     }
-                    DlStatus.Failed -> GlassCard {
-                        Text("No se pudo descargar.\n${dl.message}", color = MaterialTheme.colorScheme.error)
+                    if (!queueActive && entries.any { it.status == JobStatus.Queued }) {
+                        PillButton("Reanudar cola", onClick = { DownloadService.kick(ctx) }, modifier = Modifier.fillMaxWidth())
                     }
-                    DlStatus.Cancelled -> GlassCard {
-                        Text("Descarga cancelada.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    DlStatus.Idle -> {}
+                    ordered.forEach { e -> EntryCard(e, dl) }
                 }
 
                 // Mantenimiento de yt-dlp
@@ -329,6 +325,68 @@ private fun DownloadScreen(initialUrl: String, onBack: () -> Unit) {
                     )
                 }
                 Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+/** Una descarga de la lista: en cola, bajando, terminada o con error. */
+@Composable
+private fun EntryCard(e: DlEntry, live: com.ucd.player.download.DlState) {
+    val ctx = LocalContext.current
+    GlassCard {
+        Text(e.title, style = MaterialTheme.typography.titleSmall, maxLines = 2)
+        val kind = (if (e.audioOnly) "Solo audio" else if (e.height > 0) "${e.height}p" else "Mejor calidad")
+        when (e.status) {
+            JobStatus.Running -> {
+                val isLive = live.status == DlStatus.Running
+                Text(
+                    if (isLive) live.phase else "Preparando…",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                ProgressPill(if (isLive) live.progress else -1f)
+                val pct = if (isLive && live.progress >= 0f) "${(live.progress * 100).toInt()} %" else ""
+                val line = listOf(pct, if (isLive) live.detail else "").filter { it.isNotBlank() }.joinToString(" · ")
+                if (line.isNotBlank()) Text(line, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PillButton("Cancelar descarga", onClick = { Downloader.cancel() }, modifier = Modifier.fillMaxWidth(), filled = false)
+            }
+            JobStatus.Queued -> {
+                Text("En cola · $kind", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                TextButton(onClick = { DlQueue.remove(e.id) }) { Text("Quitar de la cola") }
+            }
+            JobStatus.Done -> {
+                Text(
+                    "Listo · $kind\nGuardado en: ${e.message}",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    if (e.uri.isNotBlank()) {
+                        PillButton(
+                            "Reproducir",
+                            onClick = {
+                                runCatching {
+                                    ctx.startActivity(PlayerActivity.intent(ctx, listOf(Uri.parse(e.uri)), listOf(e.title), 0))
+                                }
+                            },
+                        )
+                    }
+                    TextButton(onClick = { DlQueue.remove(e.id) }) { Text("Quitar del historial") }
+                }
+            }
+            JobStatus.Failed, JobStatus.Cancelled -> {
+                Text(
+                    if (e.status == JobStatus.Cancelled) "Descarga cancelada · $kind" else "No se pudo descargar · $kind\n${e.message}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (e.status == JobStatus.Cancelled) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.error,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PillButton("Reintentar", onClick = {
+                        DlQueue.retry(e.id)
+                        DownloadService.kick(ctx)
+                    })
+                    TextButton(onClick = { DlQueue.remove(e.id) }) { Text("Borrar") }
+                }
             }
         }
     }
