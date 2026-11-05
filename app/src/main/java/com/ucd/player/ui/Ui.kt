@@ -192,8 +192,12 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     var addTarget by remember { mutableStateOf<VideoItem?>(null) }
     var videoMenu by remember { mutableStateOf<VideoItem?>(null) }
     var renameTarget by remember { mutableStateOf<VideoItem?>(null) }
-    var moveTarget by remember { mutableStateOf<VideoItem?>(null) }
+    var moveTargets by remember { mutableStateOf<List<VideoItem>?>(null) }
     var deleteVideoTarget by remember { mutableStateOf<VideoItem?>(null) }
+    // Selección de varios videos (se activa manteniendo pulsado un video)
+    var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
+    var visibleVideos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
+    val selecting = selected.isNotEmpty()
     // Lo que hay que terminar cuando el usuario acepta la ventana de permiso de Android
     var pendingGrant by remember { mutableStateOf<(() -> Unit)?>(null) }
     val grantLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { r ->
@@ -223,6 +227,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     var ascending by remember { mutableStateOf(prefs.ascending) }
     var query by remember { mutableStateOf("") }
     var videoFilter by remember { mutableStateOf(prefs.videoFilter) }
+    // Al cambiar de pestaña, carpeta o filtro se cancela la selección
+    LaunchedEffect(tab, folder, open, videoFilter) { selected = emptySet() }
     var videoSearchOpen by remember { mutableStateOf(false) }
     // Un único desenfoque para toda la pantalla: la barra inferior desenfoca lo que pasa por debajo
     val navHaze = rememberHazeState()
@@ -277,6 +283,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     fun closeSearch() { if (tab == 2) bibleQuery = "" else { query = ""; videoSearchOpen = false } }
     fun goBack() {
         when {
+            selecting -> selected = emptySet()
             searchActive -> closeSearch()
             tab == 0 && videoSearchOpen -> closeSearch()
             open != null -> open = null
@@ -284,7 +291,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
             else -> folder = null
         }
     }
-    BackHandler(searchActive || open != null || (tab == 0 && (folder != null || videoSearchOpen)) || (tab == 2 && bibleBook >= 0)) { goBack() }
+    BackHandler(selecting || searchActive || open != null || (tab == 0 && (folder != null || videoSearchOpen)) || (tab == 2 && bibleBook >= 0)) { goBack() }
 
     // Fondo con manchas de color sacadas de las miniaturas: dentro de una carpeta usa los videos de
     // esa carpeta; en el resto de pantallas, las carpetas más grandes. Cambia con una transición suave.
@@ -315,7 +322,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
                     title = {
                         AnimatedContent(
-                            targetState = open?.name ?: (if (tab == 0) folder else null)
+                            targetState = (if (selecting) (if (selected.size == 1) "1 seleccionado" else "${selected.size} seleccionados") else null)
+                                ?: open?.name ?: (if (tab == 0) folder else null)
                                 ?: (if (tab == 2) {
                                     if (bibleBook < 0) "Biblia"
                                     else Bible.books[bibleBook].name + (if (bibleChapter > 0) " $bibleChapter" else "")
@@ -337,7 +345,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                         }
                     },
                     navigationIcon = {
-                        val showBack = searchActive || open != null ||
+                        val showBack = selecting || searchActive || open != null ||
                             (tab == 0 && (folder != null || videoSearchOpen)) || (tab == 2 && bibleBook >= 0)
                         // En la pantalla principal va el logo; en el resto, el botón de atrás
                         AnimatedContent(
@@ -350,7 +358,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                         ) { back ->
                             if (back) {
                                 GlassIconButton(onClick = { goBack() }) {
-                                    if (searchActive || (tab == 0 && videoSearchOpen)) Icon(Icons.Rounded.Close, "Cerrar búsqueda")
+                                    if (selecting) Icon(Icons.Rounded.Close, "Cancelar selección")
+                                    else if (searchActive || (tab == 0 && videoSearchOpen)) Icon(Icons.Rounded.Close, "Cerrar búsqueda")
                                     else Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Atrás")
                                 }
                             } else {
@@ -359,8 +368,23 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                         }
                     },
                     actions = {
+                        // Con videos seleccionados: seleccionar todos y mover
                         AnimatedVisibility(
-                            visible = open == null && tab == 0 && !videoSearchOpen,
+                            visible = selecting,
+                            enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
+                            exit = scaleOut() + fadeOut(),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                TextButton(onClick = { selected = visibleVideos.map { it.id }.toSet() }) {
+                                    Text("Seleccionar todos", maxLines = 1)
+                                }
+                                GlassIconButton(onClick = { moveTargets = videos.filter { it.id in selected } }) {
+                                    Icon(Icons.Rounded.FolderOpen, "Mover a otra carpeta")
+                                }
+                            }
+                        }
+                        AnimatedVisibility(
+                            visible = open == null && tab == 0 && !videoSearchOpen && !selecting,
                             enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
                             exit = scaleOut() + fadeOut(),
                         ) {
@@ -369,7 +393,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                             }
                         }
                         AnimatedVisibility(
-                            visible = open == null && ((tab == 0 && !videoSearchOpen) || (tab == 2 && searchHidden)),
+                            visible = open == null && !selecting && ((tab == 0 && !videoSearchOpen) || (tab == 2 && searchHidden)),
                             enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
                             exit = scaleOut() + fadeOut(),
                         ) {
@@ -381,7 +405,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                             }
                         }
                         AnimatedVisibility(
-                            visible = open == null,
+                            visible = open == null && !selecting,
                             enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
                             exit = scaleOut() + fadeOut(),
                         ) {
@@ -515,6 +539,11 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                     onOpenFolder = { folder = it },
                     onPlay = { list, i -> play(list.map { it.uri }, list.map { it.title }, i) },
                     onAdd = { videoMenu = it },
+                    sel = VideoSelection(
+                        ids = selected,
+                        onToggle = { v -> selected = if (v.id in selected) selected - v.id else selected + v.id },
+                        onVisible = { visibleVideos = it },
+                    ),
                     onGrant = { videoLauncher.launch(videoPerms) },
                 )
                 k.tab == 2 -> BibleTab(
@@ -620,7 +649,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     GlassMenuItem("Añadir a lista", Icons.Rounded.Add) { videoMenu = null; addTarget = v }
                     GlassMenuItem("Renombrar", Icons.Rounded.Edit) { videoMenu = null; renameTarget = v }
-                    GlassMenuItem("Mover a otra carpeta", Icons.Rounded.FolderOpen) { videoMenu = null; moveTarget = v }
+                    GlassMenuItem("Mover a otra carpeta", Icons.Rounded.FolderOpen) { videoMenu = null; moveTargets = listOf(v) }
                     GlassMenuItem("Compartir", Icons.Rounded.Share) {
                         videoMenu = null
                         val send = Intent(Intent.ACTION_SEND).apply {
@@ -669,21 +698,27 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
         )
     }
 
-    moveTarget?.let { v ->
-        val dests = remember(videos, v) {
+    moveTargets?.let { vs ->
+        val dests = remember(videos, vs) {
             videos.map { it.relativePath }
-                .filter { p -> p.isNotBlank() && VideoOps.ROOTS.any { p.startsWith(it) } && p != v.relativePath }
+                .filter { p -> p.isNotBlank() && VideoOps.ROOTS.any { p.startsWith(it) } && !vs.all { it.relativePath == p } }
                 .distinct().sorted()
         }
-        var newFolder by remember(v.id) { mutableStateOf("") }
+        var newFolder by remember(vs) { mutableStateOf("") }
         fun moveTo(path: String) {
-            val target = v
-            moveTarget = null
-            runOp({ VideoOps.move(ctx, Uri.parse(target.uri), path) })
+            val targets = vs
+            moveTargets = null
+            runOp(
+                { VideoOps.moveAll(ctx, targets.map { Uri.parse(it.uri) }, path) },
+                done = {
+                    selected = emptySet()
+                    if (targets.size > 1) Toast.makeText(ctx, "${targets.size} videos movidos", Toast.LENGTH_SHORT).show()
+                },
+            )
         }
         GlassAlertDialog(
-            onDismissRequest = { moveTarget = null },
-            title = { Text("Mover a otra carpeta") },
+            onDismissRequest = { moveTargets = null },
+            title = { Text(if (vs.size > 1) "Mover ${vs.size} videos a otra carpeta" else "Mover a otra carpeta") },
             text = {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Column(
@@ -710,7 +745,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                     onClick = { moveTo("Movies/" + newFolder.replace(Regex("[\\\\/:*?\"<>|]"), "").trim()) },
                 ) { Text("Crear y mover") }
             },
-            dismissButton = { TextButton(onClick = { moveTarget = null }) { Text("Cancelar") } },
+            dismissButton = { TextButton(onClick = { moveTargets = null }) { Text("Cancelar") } },
         )
     }
 
@@ -1289,6 +1324,7 @@ private fun VideosTab(
     onOpenFolder: (String) -> Unit,
     onPlay: (List<VideoItem>, Int) -> Unit,
     onAdd: (VideoItem) -> Unit,
+    sel: VideoSelection,
     onGrant: () -> Unit,
 ) {
     if (!granted) {
@@ -1314,7 +1350,7 @@ private fun VideosTab(
             sortVideos(shown.filter { it.title.contains(q, ignoreCase = true) }, sortKey, ascending)
         }
         if (list.isEmpty()) CenterMessage("Sin resultados para \"$q\"")
-        else VideoCollection(list, viewMode, onPlay, onAdd)
+        else VideoCollection(list, viewMode, onPlay, onAdd, sel)
     } else if (folder == null && chip != VideoFilter.Folders) {
         val ctx = LocalContext.current
         val prefs = remember { UcdPrefs(ctx) }
@@ -1326,7 +1362,7 @@ private fun VideosTab(
             }
         }
         if (list.isEmpty()) CenterMessage("Aún no has empezado ningún video")
-        else VideoCollection(list, viewMode, onPlay, onAdd)
+        else VideoCollection(list, viewMode, onPlay, onAdd, sel)
     } else if (folder == null) {
         val groups = remember(shown, sortKey, ascending) { buildGroups(shown, sortKey, ascending) }
         FolderCollection(groups, viewMode, hiddenFolders, hiddenThumbs, onOpenFolder, onFolderMenu)
@@ -1334,7 +1370,7 @@ private fun VideosTab(
         val list = remember(shown, folder, sortKey, ascending) {
             sortVideos(shown.filter { it.folder == folder }, sortKey, ascending)
         }
-        VideoCollection(list, viewMode, onPlay, onAdd)
+        VideoCollection(list, viewMode, onPlay, onAdd, sel)
     }
 }
 
@@ -1398,13 +1434,25 @@ private fun FolderCollection(
     }
 }
 
+/** Videos seleccionados (se activa manteniendo pulsado un video). */
+private class VideoSelection(
+    val ids: Set<Long>,
+    val onToggle: (VideoItem) -> Unit,
+    /** Avisa de qué videos se ven ahora, para "Seleccionar todos". */
+    val onVisible: (List<VideoItem>) -> Unit,
+) {
+    val active: Boolean get() = ids.isNotEmpty()
+}
+
 @Composable
 private fun VideoCollection(
     list: List<VideoItem>, mode: ViewMode,
     onPlay: (List<VideoItem>, Int) -> Unit, onAdd: (VideoItem) -> Unit,
+    sel: VideoSelection,
 ) {
     val seen = remember { mutableSetOf<Any>() }
     val thumbCtx = LocalContext.current
+    LaunchedEffect(list) { sel.onVisible(list) }
     LaunchedEffect(list) {
         if (UcdPrefs(thumbCtx).preload) { delay(600); prefetchThumbs(thumbCtx, list.map { it.uri }) }
     }
@@ -1414,10 +1462,19 @@ private fun VideoCollection(
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             itemsIndexed(list, key = { _, v -> v.id }) { i, v ->
+                val picked = v.id in sel.ids
                 ListItem(
                     modifier = Modifier.animateItem().popIn(v.id, i, seen)
-                        .bounceClick(MaterialTheme.shapes.large) { onPlay(list, i) }
-                        .glass(MaterialTheme.shapes.large),
+                        .bounceClickLong(
+                            MaterialTheme.shapes.large,
+                            onLongClick = { sel.onToggle(v) },
+                            onClick = { if (sel.active) sel.onToggle(v) else onPlay(list, i) },
+                        )
+                        .glass(MaterialTheme.shapes.large)
+                        .then(
+                            if (picked) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.large)
+                            else Modifier
+                        ),
                     leadingContent = { VideoThumb(v.uri, Modifier.size(96.dp, 54.dp)) },
                     headlineContent = { Text(v.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                     supportingContent = {
@@ -1427,7 +1484,15 @@ private fun VideoCollection(
                         )
                     },
                     trailingContent = {
-                        IconButton(onClick = { onAdd(v) }) { Icon(Icons.Rounded.MoreVert, "Opciones del video") }
+                        if (sel.active) {
+                            Icon(
+                                if (picked) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                                if (picked) "Seleccionado" else "No seleccionado",
+                                tint = if (picked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        } else {
+                            IconButton(onClick = { onAdd(v) }) { Icon(Icons.Rounded.MoreVert, "Opciones del video") }
+                        }
                     },
                 )
             }
@@ -1444,7 +1509,10 @@ private fun VideoCollection(
                 VideoTile(
                     v, compact,
                     modifier = Modifier.animateItem().popIn(v.id, i, seen),
-                    onClick = { onPlay(list, i) }, onAdd = { onAdd(v) },
+                    picked = v.id in sel.ids, selecting = sel.active,
+                    onLongClick = { sel.onToggle(v) },
+                    onClick = { if (sel.active) sel.onToggle(v) else onPlay(list, i) },
+                    onAdd = { onAdd(v) },
                 )
             }
         }
@@ -1453,14 +1521,33 @@ private fun VideoCollection(
 
 @Composable
 private fun VideoTile(
-    v: VideoItem, compact: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit, onAdd: () -> Unit,
+    v: VideoItem, compact: Boolean, modifier: Modifier = Modifier,
+    picked: Boolean, selecting: Boolean, onLongClick: () -> Unit,
+    onClick: () -> Unit, onAdd: () -> Unit,
 ) {
-    Column(modifier.bounceClick(rs(10.dp), onClick)) {
+    Column(modifier.bounceClickLong(rs(10.dp), onLongClick, onClick)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                 .glassBorder(rs(if (compact) 12.dp else 16.dp)),
         ) {
             VideoThumb(v.uri, Modifier.fillMaxSize(), corner = if (compact) 12.dp else 16.dp)
+            if (picked) {
+                Box(
+                    Modifier.fillMaxSize().clip(rs(if (compact) 12.dp else 16.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)),
+                )
+            }
+            if (selecting) {
+                Box(Modifier.align(Alignment.TopStart).padding(6.dp).size(24.dp), contentAlignment = Alignment.Center) {
+                    if (picked) Box(Modifier.size(14.dp).background(Color.White, CircleShape))
+                    Icon(
+                        if (picked) Icons.Rounded.CheckCircle else Icons.Rounded.RadioButtonUnchecked,
+                        if (picked) "Seleccionado" else "No seleccionado",
+                        Modifier.size(24.dp),
+                        tint = if (picked) MaterialTheme.colorScheme.primary else Color.White,
+                    )
+                }
+            }
             // Duración: cápsula de cristal sobre la miniatura
             Text(
                 fmt(v.durationMs), color = Color.White,
@@ -1476,7 +1563,8 @@ private fun VideoTile(
                 style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall,
                 modifier = Modifier.weight(1f).padding(start = 8.dp, top = 2.dp, bottom = 2.dp),
             )
-            IconButton(onClick = onAdd, modifier = Modifier.size(32.dp)) {
+            if (selecting) Spacer(Modifier.size(32.dp))
+            else IconButton(onClick = onAdd, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Rounded.MoreVert, "Opciones del video", Modifier.size(18.dp))
             }
         }
