@@ -263,6 +263,36 @@ fun PlayerScreen(
             }
         }
     }
+    // Marca el video actual como "usado": al llenarse la caché se borra primero lo que hace más tiempo que no se ve
+    LaunchedEffect(mediaId) {
+        if (mediaId.isNotEmpty()) withContext(Dispatchers.IO) { Remuxer.markUsed(ctx, mediaId) }
+    }
+    // Mientras se ve un video, deja listo el siguiente de la cola si es de los que necesitan índice,
+    // para que al llegar su turno ya se pueda recorrer sin esperar la conversión.
+    val prepared = remember { mutableSetOf<String>() }
+    LaunchedEffect(mediaId, currentIndex) {
+        if (mediaId.isEmpty() || player is MediaController) return@LaunchedEffect
+        delay(4000)   // primero que el video actual arranque bien
+        val next = player.nextMediaItemIndex
+        if (next == C.INDEX_UNSET || next >= player.mediaItemCount) return@LaunchedEffect
+        val nextItem = player.getMediaItemAt(next)
+        val src = nextItem.mediaId
+        if (src.isEmpty() || src in prepared) return@LaunchedEffect
+        if (nextItem.localConfiguration?.uri?.scheme == "file") { prepared.add(src); return@LaunchedEffect }
+        val out = withContext(Dispatchers.IO) {
+            Remuxer.cached(ctx, src)
+                ?: if (Remuxer.isFragmentedMp4(ctx, src)) Remuxer.prefetch(ctx, src).await() else null
+        }
+        prepared.add(src)
+        if (out == null) return@LaunchedEffect
+        // Mientras se convertía, el video pudo cambiar de lugar o ya haber empezado
+        val i = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == src }
+            ?: return@LaunchedEffect
+        if (i == player.currentMediaItemIndex) return@LaunchedEffect
+        val item = player.getMediaItemAt(i)
+        if (item.localConfiguration?.uri?.scheme == "file") return@LaunchedEffect
+        player.replaceMediaItem(i, item.buildUpon().setUri(Uri.fromFile(out)).build())
+    }
     LaunchedEffect(isPlaying, pendingSwap) {
         val p = pendingSwap ?: return@LaunchedEffect
         if (!isPlaying) applySwap(p.first, p.second, player.currentPosition)
@@ -373,18 +403,22 @@ fun PlayerScreen(
     var previewSrc by remember { mutableStateOf<String?>(null) }
     var barHeightPx by remember { mutableIntStateOf(0) }
     val previewPlayer = remember {
-        ExoPlayer.Builder(ctx).build().apply {
+        // Con "decoder fallback", si el decodificador de hardware está ocupado (el video principal ya usa uno),
+        // la vista previa usa otro en vez de quedarse en negro.
+        ExoPlayer.Builder(ctx, androidx.media3.exoplayer.DefaultRenderersFactory(ctx).setEnableDecoderFallback(true)).build().apply {
             volume = 0f
             playWhenReady = false
             trackSelectionParameters = trackSelectionParameters.buildUpon()
                 .setTrackTypeDisabled(C.TRACK_TYPE_AUDIO, true)
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
                 .build()
-            setSeekParameters(SeekParameters.EXACT)
+            setSeekParameters(SeekParameters.CLOSEST_SYNC)
         }
     }
     DisposableEffect(previewPlayer) {
         val l = object : Player.Listener {
+            // Si la vista previa falla, se vuelve a cargar en el próximo deslizamiento (antes quedaba muerta)
+            override fun onPlayerError(error: PlaybackException) { previewSrc = null }
             override fun onVideoSizeChanged(videoSize: VideoSize) {
                 if (videoSize.width > 0 && videoSize.height > 0) {
                     previewRatio = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
@@ -414,6 +448,24 @@ fun PlayerScreen(
     // Lo dejo listo en cuanto aparecen los controles, para que el primer fotograma salga rápido
     LaunchedEffect(mediaId, controlsVisible, pip, canPreview) {
         if (controlsVisible && !pip && canPreview) ensurePreview()
+    }
+    // Al deslizar la barra: saltos rápidos al fotograma clave más cercano (como mucho uno cada ~90 ms),
+    // y cuando el dedo se detiene, se afina al fotograma exacto. Pedir siempre el exacto en cada
+    // movimiento hacía que cada pedido cancelara al anterior y nunca se llegara a dibujar nada.
+    val lastPreviewSeek = remember { LongArray(1) }
+    LaunchedEffect(scrubMs) {
+        val ms = scrubMs ?: return@LaunchedEffect
+        if (!canPreview) return@LaunchedEffect
+        val wait = 90L - (System.currentTimeMillis() - lastPreviewSeek[0])
+        if (wait > 0) delay(wait)
+        ensurePreview()
+        val target = ms.coerceIn(0L, (durationMs - 1).coerceAtLeast(0L))
+        previewPlayer.setSeekParameters(SeekParameters.CLOSEST_SYNC)
+        previewPlayer.seekTo(target)
+        lastPreviewSeek[0] = System.currentTimeMillis()
+        delay(250)
+        previewPlayer.setSeekParameters(SeekParameters.EXACT)
+        previewPlayer.seekTo(target)
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -746,13 +798,7 @@ fun PlayerScreen(
                                 onPreview = { ms ->
                                     seekPreview = ms
                                     scrubMs = ms
-                                    if (ms != null) {
-                                        scrubLast = ms
-                                        if (canPreview) {
-                                            ensurePreview()
-                                            previewPlayer.seekTo(ms.coerceIn(0L, (durationMs - 1).coerceAtLeast(0L)))
-                                        }
-                                    }
+                                    if (ms != null) scrubLast = ms
                                 },
                                 onTouch = { poke() },
                                 modifier = Modifier.fillMaxWidth(),
