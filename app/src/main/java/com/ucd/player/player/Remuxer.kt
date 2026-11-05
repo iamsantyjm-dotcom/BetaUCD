@@ -7,10 +7,17 @@ import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.net.Uri
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
 import java.nio.ByteBuffer
 import kotlin.math.abs
 
@@ -41,8 +48,71 @@ object Remuxer {
         }
     }
 
-    /** Devuelve el MP4 convertido, o null si no se pudo. */
-    suspend fun remux(ctx: Context, uri: String): File? = withContext(Dispatchers.IO) {
+    /** Una sola conversión a la vez (así dos pedidos del mismo video nunca escriben el mismo archivo). */
+    private val lock = Mutex()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val inFlight = HashMap<String, Deferred<File?>>()
+
+    /** Marca la copia como "usada ahora": al llenarse la caché se borra primero lo que hace más tiempo que no se ve. */
+    fun markUsed(ctx: Context, uri: String) {
+        fileFor(ctx, uri).takeIf { it.exists() }?.setLastModified(System.currentTimeMillis())
+    }
+
+    /**
+     * ¿Es un MP4 "fragmentado" (de los que no se pueden recorrer)? Solo lee las cabeceras de las
+     * cajas del archivo, sin leer el video, así que es instantáneo. Se usa para no convertir
+     * por adelantado videos que no lo necesitan.
+     */
+    fun isFragmentedMp4(ctx: Context, uri: String): Boolean = runCatching {
+        ctx.contentResolver.openFileDescriptor(Uri.parse(uri), "r")?.use { pfd ->
+            FileInputStream(pfd.fileDescriptor).channel.use { ch ->
+                val size = ch.size()
+                var pos = 0L
+                var n = 0
+                var fragmented = false
+                val hdr = ByteBuffer.allocate(16)
+                while (pos + 8 <= size && n < 24) {
+                    hdr.clear()
+                    val read = ch.read(hdr, pos)
+                    if (read < 8) break
+                    hdr.flip()
+                    var boxSize = hdr.int.toLong() and 0xFFFFFFFFL
+                    val type = ByteArray(4).also { hdr.get(it) }.toString(Charsets.ISO_8859_1)
+                    if (n == 0 && type != "ftyp") break          // no es un MP4
+                    if (type == "moof") { fragmented = true; break }
+                    if (boxSize == 1L) { if (read < 16) break; boxSize = hdr.long }
+                    if (boxSize == 0L) boxSize = size - pos
+                    if (boxSize < 8) break
+                    pos += boxSize
+                    n++
+                }
+                fragmented
+            }
+        } ?: false
+    }.getOrDefault(false)
+
+    /**
+     * Convierte en segundo plano sin cancelarse si cambia el video que se está viendo
+     * (el trabajo ya hecho no se pierde). Devuelve el resultado cuando termina.
+     */
+    fun prefetch(ctx: Context, uri: String): Deferred<File?> {
+        val app = ctx.applicationContext
+        return synchronized(inFlight) {
+            inFlight[uri]?.takeIf { it.isActive } ?: scope.async { convert(app, uri) }.also { d ->
+                inFlight[uri] = d
+                d.invokeOnCompletion { synchronized(inFlight) { if (inFlight[uri] === d) inFlight.remove(uri) } }
+            }
+        }
+    }
+
+    /** Devuelve el MP4 convertido, o null si no se pudo. Si ya se está convirtiendo por adelantado, espera ese resultado. */
+    suspend fun remux(ctx: Context, uri: String): File? {
+        cached(ctx, uri)?.let { return it }
+        val running = synchronized(inFlight) { inFlight[uri] }
+        return if (running != null) running.await() else convert(ctx, uri)
+    }
+
+    private suspend fun convert(ctx: Context, uri: String): File? = withContext(Dispatchers.IO) { lock.withLock {
         cached(ctx, uri)?.let { return@withContext it }
         trim(ctx)
         val out = fileFor(ctx, uri)
@@ -103,5 +173,5 @@ object Remuxer {
             runCatching { android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_DEFAULT) }
             if (tmp.exists()) tmp.delete()
         }
-    }
+    } }
 }
