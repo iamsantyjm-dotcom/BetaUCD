@@ -73,6 +73,46 @@ object VideoOps {
         }
     }
 
+    /**
+     * Mueve varios videos a la misma carpeta. Si Android pide permiso, lo pide una sola vez para
+     * todos los videos que lo necesiten (en vez de una ventana por video).
+     */
+    fun moveAll(ctx: Context, uris: List<Uri>, relativePath: String): Result {
+        if (Build.VERSION.SDK_INT < 29) return Result.Error("Mover videos necesita Android 10 o superior.")
+        val rel = relativePath.trim().trim('/') + "/"
+        val needGrant = mutableListOf<Uri>()
+        var firstDenied: SecurityException? = null
+        var failed = 0
+        for (uri in uris) {
+            try {
+                val v = ContentValues().apply { put(MediaStore.MediaColumns.RELATIVE_PATH, rel) }
+                if (ctx.contentResolver.update(uri, v, null, null) <= 0) failed++
+            } catch (e: SecurityException) {
+                needGrant += uri
+                if (firstDenied == null) firstDenied = e
+            } catch (e: IllegalArgumentException) {
+                return Result.Error("Android no permite guardar videos ahí. Usa una carpeta dentro de Movies, DCIM o Pictures.")
+            } catch (e: Exception) {
+                failed++
+            }
+        }
+        if (needGrant.isNotEmpty()) {
+            if (Build.VERSION.SDK_INT >= 30) {
+                return Result.NeedsGrant(MediaStore.createWriteRequest(ctx.contentResolver, needGrant).intentSender)
+            }
+            val e = firstDenied
+            if (Build.VERSION.SDK_INT == 29 && e is RecoverableSecurityException) {
+                return Result.NeedsGrant(e.userAction.actionIntent.intentSender)
+            }
+            return Result.Error("Android no permite modificar estos archivos.")
+        }
+        return when {
+            failed == 0 -> Result.Ok
+            uris.size == 1 -> Result.Error("No se pudo mover el video.")
+            else -> Result.Error("No se pudieron mover $failed de ${uris.size} videos.")
+        }
+    }
+
     fun delete(ctx: Context, uris: List<Uri>): Result {
         return try {
             var n = 0
