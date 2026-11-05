@@ -97,6 +97,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -305,9 +306,15 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     }
     val backdropArt by produceState<List<Color>>(emptyList(), artUris) {
         value = if (artUris.isEmpty()) emptyList() else withContext(Dispatchers.IO) {
-            val cols = runCatching {
-                BackdropArt.colors(artUris.mapNotNull { (thumbCache.get(it) ?: loadThumb(ctx, it))?.asAndroidBitmap() })
-            }.getOrDefault(emptyList())
+            // El color de cada video se guarda en el dispositivo: la próxima vez sale al instante, sin decodificar la miniatura
+            val colorCache = ctx.getSharedPreferences("ucd_backdrop", Context.MODE_PRIVATE)
+            val cols = artUris.mapNotNull { u ->
+                if (colorCache.contains(u)) Color(colorCache.getInt(u, 0))
+                else runCatching {
+                    (thumbCache.get(u) ?: loadThumb(ctx, u))?.asAndroidBitmap()
+                        ?.let { BackdropArt.colors(listOf(it)).firstOrNull() }
+                }.getOrNull()?.also { colorCache.edit().putInt(u, it.toArgb()).apply() }
+            }
             // Con menos de 3 colores se repiten, para que las 3 manchas siempre tengan color
             if (cols.isEmpty()) cols else List(3) { cols[it % cols.size] }
         }
