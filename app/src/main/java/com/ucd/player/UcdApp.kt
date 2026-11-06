@@ -14,6 +14,7 @@ class UcdApp : Application() {
         super.onCreate()
         Perf.lightMode = UcdPrefs(this).lightModeExternal
         Perf.start(this)
+        Thread { com.ucd.player.player.Remuxer.cleanup(this) }.start()
         val old = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { t, e ->
             runCatching { File(filesDir, "crash.txt").writeText(Log.getStackTraceString(e)) }

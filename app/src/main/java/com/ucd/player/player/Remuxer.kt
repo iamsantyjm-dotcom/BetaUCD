@@ -27,7 +27,7 @@ import kotlin.math.abs
  * (rápido y sin pérdida de calidad), a un MP4 normal guardado en la caché de la app.
  */
 object Remuxer {
-    private const val MAX_CACHE_BYTES = 3L * 1024 * 1024 * 1024
+    private const val MAX_CACHE_BYTES = 1L * 1024 * 1024 * 1024
 
     private fun dir(ctx: Context) = File(ctx.cacheDir, "remux").also { it.mkdirs() }
 
@@ -38,8 +38,17 @@ object Remuxer {
     fun cached(ctx: Context, uri: String): File? =
         fileFor(ctx, uri).takeIf { it.exists() && it.length() > 0 }
 
+    /** Limpieza al abrir la app: borra restos de conversiones cortadas y recorta la caché al límite. */
+    fun cleanup(ctx: Context) {
+        runCatching {
+            dir(ctx).listFiles()?.filter { it.name.endsWith(".tmp") }?.forEach { it.delete() }
+            File(ctx.cacheDir, "ytdl").deleteRecursively()
+            trim(ctx)
+        }
+    }
+
     private fun trim(ctx: Context) {
-        val files = dir(ctx).listFiles()?.sortedBy { it.lastModified() }?.toMutableList() ?: return
+        val files = dir(ctx).listFiles()?.filter { it.name.endsWith(".mp4") }?.sortedBy { it.lastModified() }?.toMutableList() ?: return
         var total = files.sumOf { it.length() }
         while (total > MAX_CACHE_BYTES && files.isNotEmpty()) {
             val f = files.removeAt(0)
@@ -159,6 +168,7 @@ object Remuxer {
             m.stop()
             started = false
             if (!tmp.renameTo(out)) { tmp.delete(); return@withContext null }
+            trim(ctx)
             out
         } catch (e: CancellationException) {
             tmp.delete()

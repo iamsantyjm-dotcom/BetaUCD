@@ -267,25 +267,20 @@ fun PlayerScreen(
     LaunchedEffect(mediaId) {
         if (mediaId.isNotEmpty()) withContext(Dispatchers.IO) { Remuxer.markUsed(ctx, mediaId) }
     }
-    // Mientras se ve un video, deja listo el siguiente de la cola si es de los que necesitan índice,
-    // para que al llegar su turno ya se pueda recorrer sin esperar la conversión.
+    // Si el siguiente video de la cola ya tiene copia convertida, la usa. NO convierte por adelantado
+    // (eso gastaba disco y CPU mientras se veía otro video).
     val prepared = remember { mutableSetOf<String>() }
     LaunchedEffect(mediaId, currentIndex) {
         if (mediaId.isEmpty() || player is MediaController) return@LaunchedEffect
-        delay(4000)   // primero que el video actual arranque bien
+        delay(4000)
         val next = player.nextMediaItemIndex
         if (next == C.INDEX_UNSET || next >= player.mediaItemCount) return@LaunchedEffect
         val nextItem = player.getMediaItemAt(next)
         val src = nextItem.mediaId
         if (src.isEmpty() || src in prepared) return@LaunchedEffect
-        if (nextItem.localConfiguration?.uri?.scheme == "file") { prepared.add(src); return@LaunchedEffect }
-        val out = withContext(Dispatchers.IO) {
-            Remuxer.cached(ctx, src)
-                ?: if (Remuxer.isFragmentedMp4(ctx, src)) Remuxer.prefetch(ctx, src).await() else null
-        }
         prepared.add(src)
-        if (out == null) return@LaunchedEffect
-        // Mientras se convertía, el video pudo cambiar de lugar o ya haber empezado
+        if (nextItem.localConfiguration?.uri?.scheme == "file") return@LaunchedEffect
+        val out = withContext(Dispatchers.IO) { Remuxer.cached(ctx, src) } ?: return@LaunchedEffect
         val i = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == src }
             ?: return@LaunchedEffect
         if (i == player.currentMediaItemIndex) return@LaunchedEffect
@@ -365,8 +360,10 @@ fun PlayerScreen(
     // Precarga de las miniaturas de la cola (ajuste opcional)
     LaunchedEffect(player) {
         if (prefs.preload) {
-            delay(3000)
-            prefetchThumbs(ctx, List(player.mediaItemCount) { player.getMediaItemAt(it).mediaId }.filter { it.isNotEmpty() })
+            delay(6000)
+            val cur = player.currentMediaItemIndex.coerceAtLeast(0)
+            val total = player.mediaItemCount
+            prefetchThumbs(ctx, (cur until minOf(total, cur + 25)).map { player.getMediaItemAt(it).mediaId }.filter { it.isNotEmpty() })
         }
     }
     fun doSeek(ms: Long) {
@@ -708,9 +705,9 @@ fun PlayerScreen(
                 LevelIndicator(levelValue)
             }
 
-            if (!pip && !blackout) Text(
-                text = "-" + formatTime((durationMs - (seekPreview ?: positionMs)).coerceAtLeast(0L)),
-                style = MaterialTheme.typography.labelSmall,
+            if (!pip && !blackout) TimeText(
+                ms = { (durationMs - (seekPreview ?: positionMs)).coerceAtLeast(0L) },
+                prefix = "-",
                 color = Color.White.copy(alpha = 0.75f),
                 modifier = Modifier.align(Alignment.BottomEnd).safeDrawingPadding()
                     .padding(end = 12.dp, bottom = 8.dp),
@@ -781,19 +778,17 @@ fun PlayerScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Text(
-                                    text = formatTime(seekPreview ?: positionMs),
-                                    style = MaterialTheme.typography.labelSmall,
+                                TimeText(
+                                    ms = { seekPreview ?: positionMs },
                                     color = Color.White.copy(alpha = 0.88f),
                                 )
-                                Text(
-                                    text = formatTime(durationMs),
-                                    style = MaterialTheme.typography.labelSmall,
+                                TimeText(
+                                    ms = { durationMs },
                                     color = Color.White.copy(alpha = 0.88f),
                                 )
                             }
                             SeekBar(
-                                position = positionMs, duration = durationMs,
+                                position = { positionMs }, duration = { durationMs },
                                 onSeek = { doSeek(it) },
                                 onPreview = { ms ->
                                     seekPreview = ms
@@ -1051,14 +1046,17 @@ private fun ScrubPreviewCard(
 
 @Composable
 private fun SeekBar(
-    position: Long, duration: Long,
+    position: () -> Long, duration: () -> Long,
     onSeek: (Long) -> Unit, onPreview: (Long?) -> Unit, onTouch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var dragFrac by remember { mutableStateOf<Float?>(null) }
-    val frac = dragFrac ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val frac = dragFrac ?: run {
+        val d = duration()
+        if (d > 0) (position().toFloat() / d).coerceIn(0f, 1f) else 0f
+    }
     val active = LocalUcdStyle.current.videoAccent
-    val currentDuration by rememberUpdatedState(duration)
+    val currentDurationFn by rememberUpdatedState(duration)
     val currentOnSeek by rememberUpdatedState(onSeek)
     val currentOnPreview by rememberUpdatedState(onPreview)
     val currentOnTouch by rememberUpdatedState(onTouch)
@@ -1074,15 +1072,15 @@ private fun SeekBar(
                     fun fractionOf(x: Float) = (x / w).coerceIn(0f, 1f)
                     currentOnTouch()
                     dragFrac = fractionOf(down.position.x)
-                    currentOnPreview((dragFrac!! * currentDuration).toLong())
+                    currentOnPreview((dragFrac!! * currentDurationFn()).toLong())
                     drag(down.id) { change ->
                         change.consume()
                         dragFrac = fractionOf(change.position.x)
-                        currentOnPreview((dragFrac!! * currentDuration).toLong())
+                        currentOnPreview((dragFrac!! * currentDurationFn()).toLong())
                         currentOnTouch()
                     }
                     val f = dragFrac
-                    if (f != null && currentDuration > 0) currentOnSeek((f * currentDuration).toLong())
+                    if (f != null && currentDurationFn() > 0) currentOnSeek((f * currentDurationFn()).toLong())
                     dragFrac = null
                     currentOnPreview(null)
                 }
@@ -1134,6 +1132,17 @@ private fun queryStoreDuration(ctx: Context, uri: String): Long = runCatching {
         Uri.parse(uri), arrayOf(MediaStore.Video.Media.DURATION), null, null, null,
     )?.use { c -> if (c.moveToFirst()) c.getLong(0) else 0L } ?: 0L
 }.getOrDefault(0L)
+
+/** Texto de tiempo que se actualiza solo él (lee el valor dentro de su propio ámbito) sin redibujar la pantalla entera. */
+@Composable
+private fun TimeText(ms: () -> Long, color: Color, modifier: Modifier = Modifier, prefix: String = "") {
+    Text(
+        text = prefix + formatTime(ms()),
+        style = MaterialTheme.typography.labelSmall,
+        color = color,
+        modifier = modifier,
+    )
+}
 
 private fun formatTime(ms: Long): String {
     val s = ms / 1000
