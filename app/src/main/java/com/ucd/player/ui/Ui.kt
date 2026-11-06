@@ -190,11 +190,11 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     var tab by remember { mutableIntStateOf(0) }
     var folder by remember { mutableStateOf<String?>(null) }
     var open by remember { mutableStateOf<PlaylistEntity?>(null) }
-    var addTarget by remember { mutableStateOf<VideoItem?>(null) }
+    var addTargets by remember { mutableStateOf<List<VideoItem>?>(null) }
     var videoMenu by remember { mutableStateOf<VideoItem?>(null) }
     var renameTarget by remember { mutableStateOf<VideoItem?>(null) }
     var moveTargets by remember { mutableStateOf<List<VideoItem>?>(null) }
-    var deleteVideoTarget by remember { mutableStateOf<VideoItem?>(null) }
+    var deleteVideoTargets by remember { mutableStateOf<List<VideoItem>?>(null) }
     // Selección de varios videos (se activa manteniendo pulsado un video)
     var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
     var visibleVideos by remember { mutableStateOf<List<VideoItem>>(emptyList()) }
@@ -230,6 +230,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     var videoFilter by remember { mutableStateOf(prefs.videoFilter) }
     // Al cambiar de pestaña, carpeta o filtro se cancela la selección
     LaunchedEffect(tab, folder, open, videoFilter) { selected = emptySet() }
+    /** Videos seleccionados, en el mismo orden en que se ven en pantalla. */
+    fun selectedVideos(): List<VideoItem> = (visibleVideos + videos).distinctBy { it.id }.filter { it.id in selected }
     var videoSearchOpen by remember { mutableStateOf(false) }
     // Un único desenfoque para toda la pantalla: la barra inferior desenfoca lo que pasa por debajo
     val navHaze = rememberHazeState()
@@ -384,9 +386,6 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { selected = visibleVideos.map { it.id }.toSet() }) {
                                     Text("Seleccionar todos", maxLines = 1)
-                                }
-                                GlassIconButton(onClick = { moveTargets = videos.filter { it.id in selected } }) {
-                                    Icon(Icons.Rounded.FolderOpen, "Mover a otra carpeta")
                                 }
                             }
                         }
@@ -569,12 +568,26 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     }
 
     AnimatedVisibility(
-        visible = open == null,
+        visible = open == null && !selecting,
         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp),
         enter = slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it } + scaleIn(initialScale = 0.8f) + fadeIn(),
         exit = slideOutVertically(tween(200)) { it } + fadeOut(),
     ) {
         FloatingNav(tab = tab, onSelect = { tab = it }, haze = navHaze)
+    }
+    // Con videos seleccionados, esta barra ocupa el lugar de la de abajo: mover, añadir a lista y eliminar
+    AnimatedVisibility(
+        visible = selecting,
+        modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp),
+        enter = slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it } + scaleIn(initialScale = 0.8f) + fadeIn(),
+        exit = slideOutVertically(tween(200)) { it } + fadeOut(),
+    ) {
+        FloatingSelectionBar(
+            haze = navHaze,
+            onMove = { moveTargets = selectedVideos() },
+            onAddToList = { addTargets = selectedVideos() },
+            onDelete = { deleteVideoTargets = selectedVideos() },
+        )
     }
     }
 
@@ -617,10 +630,10 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
         )
     }
 
-    addTarget?.let { v ->
+    addTargets?.let { vs ->
         GlassAlertDialog(
-            onDismissRequest = { addTarget = null },
-            title = { Text("Añadir a lista") },
+            onDismissRequest = { addTargets = null },
+            title = { Text(if (vs.size > 1) "Añadir ${vs.size} videos a lista" else "Añadir a lista") },
             text = {
                 if (playlists.isEmpty()) {
                     Text("Primero crea una lista en la pestaña Listas.")
@@ -631,15 +644,20 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                     ) {
                         playlists.forEach { p ->
                             GlassMenuItem(p.name) {
-                                scope.launch { dao.addVideo(p.id, v.uri, v.title) }
-                                addTarget = null
+                                val toAdd = vs
+                                scope.launch { toAdd.forEach { dao.addVideo(p.id, it.uri, it.title) } }
+                                if (toAdd.size > 1) {
+                                    Toast.makeText(ctx, "${toAdd.size} videos añadidos a \"${p.name}\"", Toast.LENGTH_SHORT).show()
+                                }
+                                selected = emptySet()
+                                addTargets = null
                             }
                         }
                     }
                 }
             },
             confirmButton = {},
-            dismissButton = { TextButton(onClick = { addTarget = null }) { Text("Cerrar") } },
+            dismissButton = { TextButton(onClick = { addTargets = null }) { Text("Cerrar") } },
         )
     }
 
@@ -654,7 +672,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
             },
             text = {
                 Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GlassMenuItem("Añadir a lista", Icons.Rounded.Add) { videoMenu = null; addTarget = v }
+                    GlassMenuItem("Añadir a lista", Icons.Rounded.Add) { videoMenu = null; addTargets = listOf(v) }
                     GlassMenuItem("Renombrar", Icons.Rounded.Edit) { videoMenu = null; renameTarget = v }
                     GlassMenuItem("Mover a otra carpeta", Icons.Rounded.FolderOpen) { videoMenu = null; moveTargets = listOf(v) }
                     GlassMenuItem("Compartir", Icons.Rounded.Share) {
@@ -666,7 +684,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                         }
                         runCatching { ctx.startActivity(Intent.createChooser(send, "Compartir video")) }
                     }
-                    GlassMenuItem("Eliminar", Icons.Rounded.Delete) { videoMenu = null; deleteVideoTarget = v }
+                    GlassMenuItem("Eliminar", Icons.Rounded.Delete) { videoMenu = null; deleteVideoTargets = listOf(v) }
                     HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
                     TextButton(onClick = { videoMenu = null }, modifier = Modifier.fillMaxWidth()) { Text("Cancelar") }
                 }
@@ -756,23 +774,32 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
         )
     }
 
-    deleteVideoTarget?.let { v ->
+    deleteVideoTargets?.let { vs ->
         GlassAlertDialog(
-            onDismissRequest = { deleteVideoTarget = null },
-            title = { Text("Eliminar video") },
-            text = { Text("¿Eliminar \"${v.title}\" del dispositivo? Esta acción no se puede deshacer.") },
+            onDismissRequest = { deleteVideoTargets = null },
+            title = { Text(if (vs.size > 1) "Eliminar ${vs.size} videos" else "Eliminar video") },
+            text = {
+                Text(
+                    if (vs.size > 1) "¿Eliminar ${vs.size} videos del dispositivo? Esta acción no se puede deshacer."
+                    else "¿Eliminar \"${vs[0].title}\" del dispositivo? Esta acción no se puede deshacer."
+                )
+            },
             confirmButton = {
                 TextButton(onClick = {
-                    val target = v
-                    deleteVideoTarget = null
+                    val targets = vs
+                    deleteVideoTargets = null
                     runOp(
-                        { VideoOps.delete(ctx, listOf(Uri.parse(target.uri))) },
+                        { VideoOps.delete(ctx, targets.map { Uri.parse(it.uri) }) },
                         retryAfterGrant = false,
-                        done = { scope.launch { dao.removeVideos(listOf(target.uri)) } },
+                        done = {
+                            scope.launch { dao.removeVideos(targets.map { it.uri }) }
+                            selected = emptySet()
+                            if (targets.size > 1) Toast.makeText(ctx, "${targets.size} videos eliminados", Toast.LENGTH_SHORT).show()
+                        },
                     )
                 }) { Text("Eliminar") }
             },
-            dismissButton = { TextButton(onClick = { deleteVideoTarget = null }) { Text("Cancelar") } },
+            dismissButton = { TextButton(onClick = { deleteVideoTargets = null }) { Text("Cancelar") } },
         )
     }
 
@@ -915,6 +942,43 @@ private fun FloatingNav(tab: Int, onSelect: (Int) -> Unit, haze: HazeState, modi
         NavItem(tab == 0, Icons.Rounded.VideoLibrary, "Videos", shape) { onSelect(0) }
         NavItem(tab == 1, Icons.Rounded.Folder, "Listas", shape) { onSelect(1) }
         NavItem(tab == 2, Icons.Rounded.AutoStories, "Biblia", shape) { onSelect(2) }
+    }
+}
+
+/** Barra de acciones para los videos seleccionados (ocupa el lugar de la barra de pestañas). */
+@Composable
+private fun FloatingSelectionBar(
+    haze: HazeState, onMove: () -> Unit, onAddToList: () -> Unit, onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val st = LocalUcdStyle.current
+    val shape: Shape = if (st.flat) rs(28.dp) else CircleShape
+    Row(
+        modifier.glassCapsule(shape, haze).padding(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SelectionAction(Icons.Rounded.FolderOpen, "Mover", shape, onMove)
+        SelectionAction(Icons.Rounded.Add, "A lista", shape, onAddToList)
+        SelectionAction(Icons.Rounded.Delete, "Eliminar", shape, onDelete)
+    }
+}
+
+@Composable
+private fun SelectionAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, shape: Shape, onClick: () -> Unit,
+) {
+    val st = LocalUcdStyle.current
+    val glassy = !st.flat
+    val bg = if (glassy) Color.White.copy(alpha = 0.12f) else Color.Transparent
+    val fg = if (glassy) (if (st.navMuted != Color.Unspecified) st.navMuted else Color.White.copy(alpha = 0.85f)) else st.muted
+    Row(
+        Modifier.height(46.dp).clip(shape).background(bg).clickable(onClick = onClick).padding(horizontal = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = fg, modifier = Modifier.size(22.dp))
+        Text(label, color = fg, style = MaterialTheme.typography.labelLarge, maxLines = 1)
     }
 }
 
@@ -1249,18 +1313,56 @@ private val thumbCache = object : LruCache<String, ImageBitmap>((Runtime.getRunt
 
 private val thumbGate = Semaphore(3)
 
+// Miniaturas guardadas en disco (en la caché de la app): al abrir la app o volver a una carpeta se leen
+// de un archivo pequeño en vez de pedírselas al sistema otra vez. Android puede limpiarlas si falta espacio.
+private const val THUMB_CACHE_MAX = 150L * 1024 * 1024
+private const val THUMB_CACHE_KEEP = 110L * 1024 * 1024
+private var thumbWrites = 0
+
+private fun thumbDiskFile(ctx: Context, uri: String): File =
+    File(File(ctx.cacheDir, "thumbs"), uri.replace(Regex("[^A-Za-z0-9]"), "_") + ".jpg")
+
+/** Si la carpeta pasa del límite, borra las miniaturas más viejas. */
+private fun trimThumbDisk(dir: File) {
+    val files = dir.listFiles() ?: return
+    var total = files.sumOf { it.length() }
+    if (total <= THUMB_CACHE_MAX) return
+    for (f in files.sortedBy { it.lastModified() }) {
+        total -= f.length()
+        f.delete()
+        if (total <= THUMB_CACHE_KEEP) break
+    }
+}
+
 @Suppress("DEPRECATION")
-private fun loadThumb(ctx: Context, uri: String): ImageBitmap? = runCatching {
+private fun loadThumbFromSystem(ctx: Context, uri: String): android.graphics.Bitmap? = runCatching {
     val u = Uri.parse(uri)
-    val bitmap = if (Build.VERSION.SDK_INT >= 29) {
+    if (Build.VERSION.SDK_INT >= 29) {
         ctx.contentResolver.loadThumbnail(u, Size(400, 400), null)
     } else {
         MediaStore.Video.Thumbnails.getThumbnail(
             ctx.contentResolver, ContentUris.parseId(u), MediaStore.Video.Thumbnails.MINI_KIND, null,
         )
     }
-    bitmap?.asImageBitmap()
 }.getOrNull()
+
+private fun loadThumb(ctx: Context, uri: String): ImageBitmap? {
+    val file = thumbDiskFile(ctx, uri)
+    if (file.exists()) {
+        val fromDisk = runCatching { android.graphics.BitmapFactory.decodeFile(file.path) }.getOrNull()
+        if (fromDisk != null) return fromDisk.asImageBitmap()
+        file.delete()   // archivo dañado: se vuelve a pedir al sistema
+    }
+    val bitmap = loadThumbFromSystem(ctx, uri) ?: return null
+    runCatching {
+        file.parentFile?.mkdirs()
+        val tmp = File(file.path + ".tmp")
+        tmp.outputStream().use { bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, it) }
+        if (!tmp.renameTo(file)) tmp.delete()
+        if (++thumbWrites % 50 == 0) file.parentFile?.let { trimThumbDisk(it) }
+    }
+    return bitmap.asImageBitmap()
+}
 
 /** Prepara en segundo plano las miniaturas que aún no están en memoria (una a una, sin apurar al sistema). */
 internal suspend fun prefetchThumbs(ctx: Context, uris: List<String>) {
