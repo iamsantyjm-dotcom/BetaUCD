@@ -1,5 +1,9 @@
 package com.ucd.player.ui
 
+import androidx.compose.animation.core.snap
+import com.ucd.player.data.Perf
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -161,8 +165,8 @@ private fun ThemeCard(index: Int, t: UcdStyle, selected: Boolean, onClick: () ->
         }
         AnimatedVisibility(
             visible = selected,
-            enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
-            exit = scaleOut() + fadeOut(),
+            enter = if (Perf.enabled) EnterTransition.None else scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
+            exit = if (Perf.enabled) ExitTransition.None else scaleOut() + fadeOut(),
         ) {
             Icon(Icons.Rounded.Check, "Tema activo", tint = MaterialTheme.colorScheme.primary)
         }

@@ -70,6 +70,11 @@ fun Modifier.glass(shape: Shape, dark: Boolean? = null): Modifier {
     if (st.flat && !onVideo) {
         return this.clip(shape).background(st.surface).border(1.dp, st.outline, shape)
     }
+    if (onVideo && Perf.enabled) {
+        // Modo ligero: sobre el video, una placa oscura simple (sin degradados ni reflejos)
+        return this.clip(shape).background(Color.Black.copy(alpha = 0.72f))
+            .border(1.dp, Color.White.copy(alpha = 0.22f), shape)
+    }
     val g = if (onVideo) Themes.Graphite else st
     val light = !g.dark
     val base = if (light) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.16f)
@@ -241,6 +246,11 @@ fun DrawScope.drawBackdrop(
 @Composable
 fun GlassBackdrop(modifier: Modifier = Modifier, art: List<Color> = emptyList()) {
     val st = LocalUcdStyle.current
+    // Negro puro: fondo negro liso, sin manchas de color ni capa intermedia
+    if (Perf.pureBlack) {
+        Box(modifier.fillMaxSize().background(Color.Black))
+        return
+    }
     val artAlpha = animateFloatAsState(if (art.isNotEmpty()) 1f else 0f, tween(1200), label = "backdropArt")
     // Cada mancha cambia de color con una transición suave (al entrar a otra carpeta, por ejemplo).
     // Si no llegan colores nuevos, conserva los últimos para que no parpadee.

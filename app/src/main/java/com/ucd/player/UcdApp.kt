@@ -13,6 +13,7 @@ class UcdApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Perf.lightMode = UcdPrefs(this).lightModeExternal
+        Perf.pureBlack = UcdPrefs(this).themeId == "amoled"
         Perf.start(this)
         Thread { com.ucd.player.player.Remuxer.cleanup(this) }.start()
         val old = Thread.getDefaultUncaughtExceptionHandler()

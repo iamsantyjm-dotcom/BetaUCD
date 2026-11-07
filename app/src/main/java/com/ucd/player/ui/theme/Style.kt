@@ -206,7 +206,7 @@ object Themes {
 
     val Amoled = UcdStyle(
         id = "amoled", name = "Negro puro",
-        description = "Negro total con líneas finas: ahorra batería en pantallas OLED.",
+        description = "Negro total con líneas finas. Modo de máximo rendimiento: sin animaciones ni efectos de cristal, ahorra batería en pantallas OLED.",
         dark = true, flat = true,
         bg = listOf(Color.Black, Color.Black),
         fg = Color.White, muted = Color(0xFF9A9AA0),

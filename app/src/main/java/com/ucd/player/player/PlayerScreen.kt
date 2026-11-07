@@ -1,5 +1,6 @@
 package com.ucd.player.player
 
+import androidx.compose.animation.core.snap
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
@@ -298,7 +299,7 @@ fun PlayerScreen(
             val d = player.duration
             durationMs = if (d > 0) d else fallbackDuration
             if (player.playbackState == Player.STATE_READY) unseekable = !player.isCurrentMediaItemSeekable
-            delay(300)
+            delay(if (Perf.enabled) 500L else 300L)
         }
     }
     LaunchedEffect(levelStamp) {
@@ -679,8 +680,8 @@ fun PlayerScreen(
 
             AnimatedVisibility(
                 visible = hud != null && !pip,
-                enter = scaleIn(spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium), initialScale = 0.75f) + fadeIn(),
-                exit = scaleOut(targetScale = 0.9f) + fadeOut(),
+                enter = if (Perf.enabled) EnterTransition.None else scaleIn(spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium), initialScale = 0.75f) + fadeIn(),
+                exit = if (Perf.enabled) ExitTransition.None else scaleOut(targetScale = 0.9f) + fadeOut(),
                 modifier = Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 10.dp),
             ) {
                 Surface(
@@ -697,7 +698,7 @@ fun PlayerScreen(
 
             AnimatedVisibility(
                 visible = levelVisible && !pip,
-                enter = scaleIn(initialScale = 0.6f) + fadeIn(), exit = scaleOut(targetScale = 0.8f) + fadeOut(),
+                enter = if (Perf.enabled) EnterTransition.None else scaleIn(initialScale = 0.6f) + fadeIn(), exit = if (Perf.enabled) ExitTransition.None else scaleOut(targetScale = 0.8f) + fadeOut(),
                 modifier = Modifier
                     .align(if (levelOnLeft) Alignment.CenterStart else Alignment.CenterEnd)
                     .padding(horizontal = 18.dp),
@@ -715,14 +716,14 @@ fun PlayerScreen(
 
             AnimatedVisibility(
                 visible = controlsVisible && !pip,
-                enter = fadeIn(tween(180)), exit = fadeOut(tween(220)),
+                enter = if (Perf.enabled) EnterTransition.None else fadeIn(tween(180)), exit = if (Perf.enabled) ExitTransition.None else fadeOut(tween(220)),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                     Row(
                         Modifier.align(Alignment.TopStart).padding(12.dp).animateEnterExit(
-                            enter = slideInVertically(spring(0.7f, Spring.StiffnessMediumLow)) { -it } + fadeIn(),
-                            exit = slideOutVertically(tween(200)) { -it } + fadeOut(),
+                            enter = if (Perf.enabled) EnterTransition.None else slideInVertically(spring(0.7f, Spring.StiffnessMediumLow)) { -it } + fadeIn(),
+                            exit = if (Perf.enabled) ExitTransition.None else slideOutVertically(tween(200)) { -it } + fadeOut(),
                         ),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -767,8 +768,8 @@ fun PlayerScreen(
                         Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp)
                             .onSizeChanged { barHeightPx = it.height }
                             .animateEnterExit(
-                            enter = slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it / 2 } + scaleIn(initialScale = 0.9f) + fadeIn(),
-                            exit = slideOutVertically(tween(200)) { it / 2 } + fadeOut(),
+                            enter = if (Perf.enabled) EnterTransition.None else slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it / 2 } + scaleIn(initialScale = 0.9f) + fadeIn(),
+                            exit = if (Perf.enabled) ExitTransition.None else slideOutVertically(tween(200)) { it / 2 } + fadeOut(),
                         ),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -822,6 +823,7 @@ fun PlayerScreen(
                                     AnimatedContent(
                                         targetState = isPlaying,
                                         transitionSpec = {
+                                            if (Perf.enabled) EnterTransition.None togetherWith ExitTransition.None else
                                             (scaleIn(spring(0.5f, Spring.StiffnessMedium), initialScale = 0.4f) + fadeIn(tween(120))) togetherWith
                                                 (scaleOut(tween(120), targetScale = 0.4f) + fadeOut(tween(100)))
                                         },

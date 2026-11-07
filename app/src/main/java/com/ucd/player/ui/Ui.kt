@@ -1,5 +1,9 @@
 package com.ucd.player.ui
 
+import androidx.compose.animation.core.snap
+import com.ucd.player.data.Perf
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.EnterTransition
 import android.Manifest
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -339,6 +343,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                                 } else null)
                                 ?: "UCD Player",
                             transitionSpec = {
+                                if (Perf.enabled) EnterTransition.None togetherWith ExitTransition.None else
                                 (fadeIn(tween(220, delayMillis = 80)) +
                                     scaleIn(spring(0.7f, Spring.StiffnessMediumLow), initialScale = 0.85f)) togetherWith
                                     fadeOut(tween(100))
@@ -360,6 +365,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                         AnimatedContent(
                             targetState = showBack,
                             transitionSpec = {
+                                if (Perf.enabled) EnterTransition.None togetherWith ExitTransition.None else
                                 (scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn()) togetherWith
                                     (scaleOut() + fadeOut())
                             },
@@ -380,8 +386,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                         // Con videos seleccionados: seleccionar todos y mover
                         AnimatedVisibility(
                             visible = selecting,
-                            enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
-                            exit = scaleOut() + fadeOut(),
+                            enter = if (Perf.enabled) EnterTransition.None else scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
+                            exit = if (Perf.enabled) ExitTransition.None else scaleOut() + fadeOut(),
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 TextButton(onClick = { selected = visibleVideos.map { it.id }.toSet() }) {
@@ -391,8 +397,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                         }
                         AnimatedVisibility(
                             visible = open == null && tab == 0 && !videoSearchOpen && !selecting,
-                            enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
-                            exit = scaleOut() + fadeOut(),
+                            enter = if (Perf.enabled) EnterTransition.None else scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
+                            exit = if (Perf.enabled) ExitTransition.None else scaleOut() + fadeOut(),
                         ) {
                             GlassIconButton(onClick = { ctx.startActivity(Intent(ctx, DownloadActivity::class.java)) }) {
                                 Icon(Icons.Rounded.Download, "Descargar video")
@@ -400,8 +406,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                         }
                         AnimatedVisibility(
                             visible = open == null && !selecting && ((tab == 0 && !videoSearchOpen) || (tab == 2 && searchHidden)),
-                            enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
-                            exit = scaleOut() + fadeOut(),
+                            enter = if (Perf.enabled) EnterTransition.None else scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
+                            exit = if (Perf.enabled) ExitTransition.None else scaleOut() + fadeOut(),
                         ) {
                             GlassIconButton(onClick = {
                                 if (tab == 0) videoSearchOpen = true else searchCollapsed = false
@@ -412,8 +418,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                         }
                         AnimatedVisibility(
                             visible = open == null && !selecting,
-                            enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
-                            exit = scaleOut() + fadeOut(),
+                            enter = if (Perf.enabled) EnterTransition.None else scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
+                            exit = if (Perf.enabled) ExitTransition.None else scaleOut() + fadeOut(),
                         ) {
                             Box {
                                 GlassIconButton(onClick = { menuOpen = true }) { FourDotsIcon() }
@@ -465,8 +471,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                         }
                         AnimatedVisibility(
                             visible = tab == 2,
-                            enter = scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
-                            exit = scaleOut() + fadeOut(),
+                            enter = if (Perf.enabled) EnterTransition.None else scaleIn(spring(0.5f, Spring.StiffnessMedium)) + fadeIn(),
+                            exit = if (Perf.enabled) ExitTransition.None else scaleOut() + fadeOut(),
                         ) {
                             GlassIconButton(onClick = { bibleRed = !bibleRed; prefs.bibleRed = bibleRed }) {
                                 Icon(
@@ -482,7 +488,7 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                     visible = open == null && tab == 2 && !searchHidden,
                     enter = expandVertically(spring(0.8f, Spring.StiffnessMediumLow)) + fadeIn() +
                         scaleIn(initialScale = 0.9f),
-                    exit = shrinkVertically() + fadeOut(),
+                    exit = if (Perf.enabled) ExitTransition.None else shrinkVertically() + fadeOut(),
                 ) {
                     SearchPill(bibleQuery, { bibleQuery = it }, searchFocus, "Buscar libro, cita (Jn 3:16) o texto…")
                 }
@@ -491,15 +497,15 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                     visible = open == null && tab == 0 && videoSearchOpen,
                     enter = expandVertically(spring(0.8f, Spring.StiffnessMediumLow)) + fadeIn() +
                         scaleIn(initialScale = 0.9f),
-                    exit = shrinkVertically() + fadeOut(),
+                    exit = if (Perf.enabled) ExitTransition.None else shrinkVertically() + fadeOut(),
                 ) {
                     SearchPill(query, { query = it }, searchFocus, "Buscar videos…")
                 }
                 // Videos: chips de filtro (se deslizan hacia los lados)
                 AnimatedVisibility(
                     visible = open == null && tab == 0 && !videoSearchOpen && folder == null,
-                    enter = expandVertically(spring(0.8f, Spring.StiffnessMediumLow)) + fadeIn(),
-                    exit = shrinkVertically() + fadeOut(),
+                    enter = if (Perf.enabled) EnterTransition.None else expandVertically(spring(0.8f, Spring.StiffnessMediumLow)) + fadeIn(),
+                    exit = if (Perf.enabled) ExitTransition.None else shrinkVertically() + fadeOut(),
                 ) {
                     FilterPills(videoFilter) { videoFilter = it; prefs.videoFilter = it }
                 }
@@ -508,8 +514,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
         floatingActionButton = {
             AnimatedVisibility(
                 visible = open == null && tab == 1,
-                enter = scaleIn(spring(0.45f, Spring.StiffnessMediumLow)) + fadeIn(),
-                exit = scaleOut() + fadeOut(),
+                enter = if (Perf.enabled) EnterTransition.None else scaleIn(spring(0.45f, Spring.StiffnessMediumLow)) + fadeIn(),
+                exit = if (Perf.enabled) ExitTransition.None else scaleOut() + fadeOut(),
             ) {
                 val fabStyle = LocalUcdStyle.current
                 val fabSolid = fabStyle.fabBg != Color.Unspecified
@@ -570,8 +576,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     AnimatedVisibility(
         visible = open == null && !selecting,
         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp),
-        enter = slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it } + scaleIn(initialScale = 0.8f) + fadeIn(),
-        exit = slideOutVertically(tween(200)) { it } + fadeOut(),
+        enter = if (Perf.enabled) EnterTransition.None else slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it } + scaleIn(initialScale = 0.8f) + fadeIn(),
+        exit = if (Perf.enabled) ExitTransition.None else slideOutVertically(tween(200)) { it } + fadeOut(),
     ) {
         FloatingNav(tab = tab, onSelect = { tab = it }, haze = navHaze)
     }
@@ -579,8 +585,8 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     AnimatedVisibility(
         visible = selecting,
         modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 10.dp),
-        enter = slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it } + scaleIn(initialScale = 0.8f) + fadeIn(),
-        exit = slideOutVertically(tween(200)) { it } + fadeOut(),
+        enter = if (Perf.enabled) EnterTransition.None else slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it } + scaleIn(initialScale = 0.8f) + fadeIn(),
+        exit = if (Perf.enabled) ExitTransition.None else slideOutVertically(tween(200)) { it } + fadeOut(),
     ) {
         FloatingSelectionBar(
             haze = navHaze,
@@ -888,7 +894,7 @@ private fun SearchPill(query: String, onChange: (String) -> Unit, focus: FocusRe
     val shape: Shape = if (LocalUcdStyle.current.flat) rs(26.dp) else CircleShape
     var focused by remember { mutableStateOf(false) }
     val grow by animateFloatAsState(
-        if (focused) 1f else 0f, spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow), label = "searchFocus",
+        if (focused) 1f else 0f, if (Perf.enabled) snap<Float>() else spring(dampingRatio = 0.7f, stiffness = Spring.StiffnessMediumLow), label = "searchFocus",
     )
     Surface(
         shape = shape,
@@ -994,10 +1000,10 @@ private fun NavItem(
     val idleBg = if (glassy) Color.White.copy(alpha = 0.12f) else Color.Transparent
     val idleFg = if (glassy) (if (st.navMuted != Color.Unspecified) st.navMuted else Color.White.copy(alpha = 0.85f)) else st.muted
     val bg by animateColorAsState(
-        if (selected) selBg else idleBg, spring(stiffness = Spring.StiffnessMediumLow), label = "navBg",
+        if (selected) selBg else idleBg, if (Perf.enabled) snap<Color>() else spring(stiffness = Spring.StiffnessMediumLow), label = "navBg",
     )
     val fg by animateColorAsState(
-        if (selected) selFg else idleFg, spring(stiffness = Spring.StiffnessMediumLow), label = "navFg",
+        if (selected) selFg else idleFg, if (Perf.enabled) snap<Color>() else spring(stiffness = Spring.StiffnessMediumLow), label = "navFg",
     )
     Row(
         Modifier
@@ -1012,8 +1018,8 @@ private fun NavItem(
         Icon(icon, label, tint = fg, modifier = Modifier.size(22.dp))
         AnimatedVisibility(
             visible = selected,
-            enter = expandHorizontally(spring(0.8f, Spring.StiffnessMediumLow)) + fadeIn(),
-            exit = shrinkHorizontally(spring(stiffness = Spring.StiffnessMedium)) + fadeOut(),
+            enter = if (Perf.enabled) EnterTransition.None else expandHorizontally(spring(0.8f, Spring.StiffnessMediumLow)) + fadeIn(),
+            exit = if (Perf.enabled) ExitTransition.None else shrinkHorizontally(spring(stiffness = Spring.StiffnessMedium)) + fadeOut(),
         ) {
             Text(
                 label, color = fg, style = MaterialTheme.typography.labelLarge,
@@ -1143,11 +1149,11 @@ internal fun FilterPill(text: String, selected: Boolean, onClick: () -> Unit) {
     val selBg = if (st.flat) st.selFill else Color(0xFFFFF48A)
     val selFg = if (st.flat) st.selText else Color(0xFF1B2030)
     val bg by animateColorAsState(
-        if (selected) selBg else Color.Transparent, spring(stiffness = Spring.StiffnessMediumLow), label = "pillBg",
+        if (selected) selBg else Color.Transparent, if (Perf.enabled) snap<Color>() else spring(stiffness = Spring.StiffnessMediumLow), label = "pillBg",
     )
     val fg by animateColorAsState(
         if (selected) selFg else MaterialTheme.colorScheme.onSurface,
-        spring(stiffness = Spring.StiffnessMediumLow), label = "pillFg",
+        if (Perf.enabled) snap<Color>() else spring(stiffness = Spring.StiffnessMediumLow), label = "pillFg",
     )
     Box(
         Modifier
@@ -1176,6 +1182,7 @@ private data class ScreenKey(
 }
 
 internal fun popTransition(from: Int, to: Int): ContentTransform {
+    if (Perf.enabled) return EnterTransition.None togetherWith ExitTransition.None
     val pop = spring<Float>(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
     return when {
         to > from ->
@@ -1194,7 +1201,7 @@ internal fun popTransition(from: Int, to: Int): ContentTransform {
 internal fun Modifier.bounceClick(shape: Shape, onClick: () -> Unit): Modifier {
     var pressed by remember { mutableStateOf(false) }
     val s by animateFloatAsState(
-        if (pressed) 0.94f else 1f, spring(dampingRatio = 0.5f, stiffness = 500f), label = "press",
+        if (pressed && !Perf.enabled) 0.94f else 1f, spring(dampingRatio = 0.5f, stiffness = 500f), label = "press",
     )
     return this
         .graphicsLayer { scaleX = s; scaleY = s }
@@ -1218,7 +1225,7 @@ internal fun Modifier.bounceClickLong(shape: Shape, onLongClick: () -> Unit, onC
     var pressed by remember { mutableStateOf(false) }
     val haptic = LocalHapticFeedback.current
     val s by animateFloatAsState(
-        if (pressed) 0.94f else 1f, spring(dampingRatio = 0.5f, stiffness = 500f), label = "pressLong",
+        if (pressed && !Perf.enabled) 0.94f else 1f, spring(dampingRatio = 0.5f, stiffness = 500f), label = "pressLong",
     )
     return this
         .graphicsLayer { scaleX = s; scaleY = s }
@@ -1245,7 +1252,7 @@ internal fun Modifier.bounceClickLong(shape: Shape, onLongClick: () -> Unit, onC
 @Composable
 private fun Modifier.popIn(key: Any, index: Int, seen: MutableSet<Any>): Modifier {
     val play = remember { index < 14 && seen.add(key) }
-    if (!play) return this
+    if (!play || Perf.enabled) return this
     val p = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         delay(index * 30L)
@@ -1394,7 +1401,7 @@ internal fun VideoThumb(uri: String, modifier: Modifier = Modifier, corner: Dp =
         contentAlignment = Alignment.Center,
     ) {
         val b = bmp
-        val a by animateFloatAsState(if (b != null) 1f else 0f, tween(250), label = "thumb")
+        val a by animateFloatAsState(if (b != null) 1f else 0f, if (Perf.enabled) snap<Float>() else tween(250), label = "thumb")
         if (b != null) {
             Image(bitmap = b, contentDescription = null, contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize().graphicsLayer { alpha = a })
@@ -1410,7 +1417,7 @@ private fun CenterMessage(text: String, content: @Composable () -> Unit = {}) {
     LaunchedEffect(Unit) { shown = true }
     AnimatedVisibility(
         visible = shown,
-        enter = scaleIn(spring(0.55f, Spring.StiffnessMediumLow), initialScale = 0.7f) + fadeIn(),
+        enter = if (Perf.enabled) EnterTransition.None else scaleIn(spring(0.55f, Spring.StiffnessMediumLow), initialScale = 0.7f) + fadeIn(),
     ) {
         Column(
             Modifier.fillMaxSize().padding(32.dp),
@@ -1501,7 +1508,7 @@ private fun FolderCollection(
         ) {
             itemsIndexed(groups, key = { _, g -> g.name }) { i, g ->
                 ListItem(
-                    modifier = Modifier.animateItem().popIn(g.name, i, seen)
+                    modifier = (if (Perf.enabled) Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null) else Modifier.animateItem()).popIn(g.name, i, seen)
                         .bounceClickLong(MaterialTheme.shapes.large, { onMenu(g.name) }) { onOpen(g.name) }
                         .glass(MaterialTheme.shapes.large),
                     leadingContent = {
@@ -1533,7 +1540,7 @@ private fun FolderCollection(
             gridItemsIndexed(groups, key = { _, g -> g.name }) { i, g ->
                 FolderTile(
                     g.name, g.count, g.coverUri, compact,
-                    modifier = Modifier.animateItem().popIn(g.name, i, seen),
+                    modifier = (if (Perf.enabled) Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null) else Modifier.animateItem()).popIn(g.name, i, seen),
                     thumbHidden = g.name in hiddenThumbs,
                     hidden = g.name in hiddenFolders,
                     onLongClick = { onMenu(g.name) },
@@ -1573,7 +1580,7 @@ private fun VideoCollection(
             itemsIndexed(list, key = { _, v -> v.id }) { i, v ->
                 val picked = v.id in sel.ids
                 ListItem(
-                    modifier = Modifier.animateItem().popIn(v.id, i, seen)
+                    modifier = (if (Perf.enabled) Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null) else Modifier.animateItem()).popIn(v.id, i, seen)
                         .bounceClickLong(
                             MaterialTheme.shapes.large,
                             onLongClick = { sel.onToggle(v) },
@@ -1617,7 +1624,7 @@ private fun VideoCollection(
             gridItemsIndexed(list, key = { _, v -> v.id }) { i, v ->
                 VideoTile(
                     v, compact,
-                    modifier = Modifier.animateItem().popIn(v.id, i, seen),
+                    modifier = (if (Perf.enabled) Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null) else Modifier.animateItem()).popIn(v.id, i, seen),
                     picked = v.id in sel.ids, selecting = sel.active,
                     onLongClick = { sel.onToggle(v) },
                     onClick = { if (sel.active) sel.onToggle(v) else onPlay(list, i) },
@@ -1775,7 +1782,7 @@ private fun PlaylistsTab(
     ) {
         itemsIndexed(playlists, key = { _, p -> p.id }) { i, p ->
             ListItem(
-                modifier = Modifier.animateItem().popIn(p.id, i, seen)
+                modifier = (if (Perf.enabled) Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null) else Modifier.animateItem()).popIn(p.id, i, seen)
                     .bounceClick(MaterialTheme.shapes.large) { onOpen(p) }
                     .glass(MaterialTheme.shapes.large),
                 leadingContent = { Icon(Icons.Rounded.Folder, null) },
@@ -1844,7 +1851,7 @@ private fun PlaylistDetail(
             ) {
                 itemsIndexed(items, key = { i, _ -> keys.getOrElse(i) { "p$i" } }) { i, e ->
                     ListItem(
-                        modifier = Modifier.animateItem().popIn(keys.getOrElse(i) { "p$i" }, i, seen)
+                        modifier = (if (Perf.enabled) Modifier.animateItem(fadeInSpec = null, placementSpec = null, fadeOutSpec = null) else Modifier.animateItem()).popIn(keys.getOrElse(i) { "p$i" }, i, seen)
                             .bounceClick(rs(24.dp)) {
                                 onPlay(items.map { it.videoUri }, items.map { it.title }, i)
                             }
@@ -1872,8 +1879,8 @@ private fun PlaylistDetail(
         AnimatedVisibility(
             visible = items.isNotEmpty(),
             modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 24.dp),
-            enter = scaleIn(spring(0.6f, Spring.StiffnessMediumLow), initialScale = 0.7f) + fadeIn(),
-            exit = scaleOut() + fadeOut(),
+            enter = if (Perf.enabled) EnterTransition.None else scaleIn(spring(0.6f, Spring.StiffnessMediumLow), initialScale = 0.7f) + fadeIn(),
+            exit = if (Perf.enabled) ExitTransition.None else scaleOut() + fadeOut(),
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(

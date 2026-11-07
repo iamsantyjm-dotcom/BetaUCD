@@ -21,8 +21,14 @@ object Perf {
     var externalConnected by mutableStateOf(false)
         private set
 
+    /**
+     * Tema "Negro puro" activo: es el tema de máximo rendimiento. Quita animaciones, transiciones,
+     * efectos de cristal y desenfoques en toda la app, siempre (con o sin TV conectado).
+     */
+    var pureBlack by mutableStateOf(false)
+
     /** Verdadero = interfaz ligera. Se puede leer desde cualquier pantalla: se actualizan solas. */
-    val enabled: Boolean get() = lightMode && externalConnected
+    val enabled: Boolean get() = pureBlack || (lightMode && externalConnected)
 
     private var started = false
 

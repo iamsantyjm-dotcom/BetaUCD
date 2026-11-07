@@ -64,7 +64,7 @@ class UcdPrefs(ctx: Context) {
     /** Tema visual elegido (id de UcdStyle). Por defecto: Medianoche. */
     var themeId: String
         get() = sp.getString("theme_id3", null) ?: "midnight"
-        set(v) { sp.edit().putString("theme_id3", v).apply() }
+        set(v) { sp.edit().putString("theme_id3", v).apply(); Perf.pureBlack = (v == "amoled") }
 
     // --- Biblia ---
     var bibleRed: Boolean   // palabras de Cristo en rojo
