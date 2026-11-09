@@ -1,6 +1,5 @@
 package com.ucd.player.player
 
-import androidx.compose.animation.core.snap
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
@@ -80,6 +79,7 @@ import androidx.media3.common.TrackSelectionOverride
 import androidx.media3.common.Tracks
 import androidx.media3.common.VideoSize
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
@@ -139,6 +139,25 @@ fun PlayerScreen(
     val multiAudio = remember(tracks) { trackOptions(tracks, C.TRACK_TYPE_AUDIO).size > 1 }
     var tracksDialog by remember { mutableStateOf(false) }
     var queueOpen by remember { mutableStateOf(false) }
+    // Información técnica del video (decodificador, fotogramas perdidos...) para diagnosticar cortes
+    var infoDialog by remember { mutableStateOf(false) }
+    var videoDecoder by remember { mutableStateOf<String?>(null) }
+    var droppedCount by remember { mutableStateOf(0) }
+    DisposableEffect(player) {
+        val exo = player as? ExoPlayer
+        val l = object : AnalyticsListener {
+            override fun onVideoDecoderInitialized(
+                eventTime: AnalyticsListener.EventTime, decoderName: String,
+                initializedTimestampMs: Long, initializationDurationMs: Long,
+            ) { videoDecoder = decoderName }
+
+            override fun onDroppedVideoFrames(eventTime: AnalyticsListener.EventTime, droppedFrames: Int, elapsedMs: Long) {
+                droppedCount += droppedFrames
+            }
+        }
+        exo?.addAnalyticsListener(l)
+        onDispose { exo?.removeAnalyticsListener(l) }
+    }
     var currentIndex by remember { mutableIntStateOf(player.currentMediaItemIndex) }
     var repeatMode by remember { mutableIntStateOf(player.repeatMode) }
     var shuffleOn by remember { mutableStateOf(player.shuffleModeEnabled) }
@@ -266,22 +285,29 @@ fun PlayerScreen(
     }
     // Marca el video actual como "usado": al llenarse la caché se borra primero lo que hace más tiempo que no se ve
     LaunchedEffect(mediaId) {
+        droppedCount = 0   // los fotogramas perdidos se cuentan por video
         if (mediaId.isNotEmpty()) withContext(Dispatchers.IO) { Remuxer.markUsed(ctx, mediaId) }
     }
-    // Si el siguiente video de la cola ya tiene copia convertida, la usa. NO convierte por adelantado
-    // (eso gastaba disco y CPU mientras se veía otro video).
+    // Mientras se ve un video, deja listo el siguiente de la cola si es de los que necesitan índice,
+    // para que al llegar su turno ya se pueda recorrer sin esperar la conversión.
     val prepared = remember { mutableSetOf<String>() }
-    LaunchedEffect(mediaId, currentIndex) {
-        if (mediaId.isEmpty() || player is MediaController) return@LaunchedEffect
-        delay(4000)
+    LaunchedEffect(mediaId, currentIndex, Perf.enabled) {
+        // Con TV conectado (modo ligero) no se convierte nada en segundo plano: evita microcortes al proyectar
+        if (mediaId.isEmpty() || player is MediaController || Perf.enabled) return@LaunchedEffect
+        delay(4000)   // primero que el video actual arranque bien
         val next = player.nextMediaItemIndex
         if (next == C.INDEX_UNSET || next >= player.mediaItemCount) return@LaunchedEffect
         val nextItem = player.getMediaItemAt(next)
         val src = nextItem.mediaId
         if (src.isEmpty() || src in prepared) return@LaunchedEffect
+        if (nextItem.localConfiguration?.uri?.scheme == "file") { prepared.add(src); return@LaunchedEffect }
+        val out = withContext(Dispatchers.IO) {
+            Remuxer.cached(ctx, src)
+                ?: if (Remuxer.isFragmentedMp4(ctx, src)) Remuxer.prefetch(ctx, src).await() else null
+        }
         prepared.add(src)
-        if (nextItem.localConfiguration?.uri?.scheme == "file") return@LaunchedEffect
-        val out = withContext(Dispatchers.IO) { Remuxer.cached(ctx, src) } ?: return@LaunchedEffect
+        if (out == null) return@LaunchedEffect
+        // Mientras se convertía, el video pudo cambiar de lugar o ya haber empezado
         val i = (0 until player.mediaItemCount).firstOrNull { player.getMediaItemAt(it).mediaId == src }
             ?: return@LaunchedEffect
         if (i == player.currentMediaItemIndex) return@LaunchedEffect
@@ -299,7 +325,7 @@ fun PlayerScreen(
             val d = player.duration
             durationMs = if (d > 0) d else fallbackDuration
             if (player.playbackState == Player.STATE_READY) unseekable = !player.isCurrentMediaItemSeekable
-            delay(if (Perf.enabled) 500L else 300L)
+            delay(300)
         }
     }
     LaunchedEffect(levelStamp) {
@@ -360,11 +386,9 @@ fun PlayerScreen(
     }
     // Precarga de las miniaturas de la cola (ajuste opcional)
     LaunchedEffect(player) {
-        if (prefs.preload) {
-            delay(6000)
-            val cur = player.currentMediaItemIndex.coerceAtLeast(0)
-            val total = player.mediaItemCount
-            prefetchThumbs(ctx, (cur until minOf(total, cur + 25)).map { player.getMediaItemAt(it).mediaId }.filter { it.isNotEmpty() })
+        if (prefs.preload && !Perf.enabled) {
+            delay(3000)
+            prefetchThumbs(ctx, List(player.mediaItemCount) { player.getMediaItemAt(it).mediaId }.filter { it.isNotEmpty() })
         }
     }
     fun doSeek(ms: Long) {
@@ -680,8 +704,8 @@ fun PlayerScreen(
 
             AnimatedVisibility(
                 visible = hud != null && !pip,
-                enter = if (Perf.enabled) EnterTransition.None else scaleIn(spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium), initialScale = 0.75f) + fadeIn(),
-                exit = if (Perf.enabled) ExitTransition.None else scaleOut(targetScale = 0.9f) + fadeOut(),
+                enter = scaleIn(spring(dampingRatio = 0.55f, stiffness = Spring.StiffnessMedium), initialScale = 0.75f) + fadeIn(),
+                exit = scaleOut(targetScale = 0.9f) + fadeOut(),
                 modifier = Modifier.align(Alignment.TopCenter).safeDrawingPadding().padding(top = 10.dp),
             ) {
                 Surface(
@@ -698,7 +722,7 @@ fun PlayerScreen(
 
             AnimatedVisibility(
                 visible = levelVisible && !pip,
-                enter = if (Perf.enabled) EnterTransition.None else scaleIn(initialScale = 0.6f) + fadeIn(), exit = if (Perf.enabled) ExitTransition.None else scaleOut(targetScale = 0.8f) + fadeOut(),
+                enter = scaleIn(initialScale = 0.6f) + fadeIn(), exit = scaleOut(targetScale = 0.8f) + fadeOut(),
                 modifier = Modifier
                     .align(if (levelOnLeft) Alignment.CenterStart else Alignment.CenterEnd)
                     .padding(horizontal = 18.dp),
@@ -706,9 +730,9 @@ fun PlayerScreen(
                 LevelIndicator(levelValue)
             }
 
-            if (!pip && !blackout) TimeText(
-                ms = { (durationMs - (seekPreview ?: positionMs)).coerceAtLeast(0L) },
-                prefix = "-",
+            if (!pip && !blackout) Text(
+                text = "-" + formatTime((durationMs - (seekPreview ?: positionMs)).coerceAtLeast(0L)),
+                style = MaterialTheme.typography.labelSmall,
                 color = Color.White.copy(alpha = 0.75f),
                 modifier = Modifier.align(Alignment.BottomEnd).safeDrawingPadding()
                     .padding(end = 12.dp, bottom = 8.dp),
@@ -716,14 +740,14 @@ fun PlayerScreen(
 
             AnimatedVisibility(
                 visible = controlsVisible && !pip,
-                enter = if (Perf.enabled) EnterTransition.None else fadeIn(tween(180)), exit = if (Perf.enabled) ExitTransition.None else fadeOut(tween(220)),
+                enter = fadeIn(tween(180)), exit = fadeOut(tween(220)),
                 modifier = Modifier.fillMaxSize(),
             ) {
                 Box(Modifier.fillMaxSize().safeDrawingPadding()) {
                     Row(
                         Modifier.align(Alignment.TopStart).padding(12.dp).animateEnterExit(
-                            enter = if (Perf.enabled) EnterTransition.None else slideInVertically(spring(0.7f, Spring.StiffnessMediumLow)) { -it } + fadeIn(),
-                            exit = if (Perf.enabled) ExitTransition.None else slideOutVertically(tween(200)) { -it } + fadeOut(),
+                            enter = slideInVertically(spring(0.7f, Spring.StiffnessMediumLow)) { -it } + fadeIn(),
+                            exit = slideOutVertically(tween(200)) { -it } + fadeOut(),
                         ),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -751,6 +775,15 @@ fun PlayerScreen(
                         }
                     }
 
+                    // Información técnica del video (códec, fps, decodificador...)
+                    Surface(
+                        onClick = { infoDialog = true; poke() }, shape = CircleShape,
+                        color = Color.Transparent, contentColor = Color.White,
+                        modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).glass(CircleShape, dark = true),
+                    ) {
+                        Icon(Icons.Rounded.Info, "Información del video", Modifier.padding(8.dp).size(20.dp))
+                    }
+
                     // Fotograma exacto del punto al que se desliza la barra (solo se ve en el celular)
                     run {
                         val frac = if (durationMs > 0) (scrubLast.toFloat() / durationMs).coerceIn(0f, 1f) else 0f
@@ -768,8 +801,8 @@ fun PlayerScreen(
                         Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp)
                             .onSizeChanged { barHeightPx = it.height }
                             .animateEnterExit(
-                            enter = if (Perf.enabled) EnterTransition.None else slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it / 2 } + scaleIn(initialScale = 0.9f) + fadeIn(),
-                            exit = if (Perf.enabled) ExitTransition.None else slideOutVertically(tween(200)) { it / 2 } + fadeOut(),
+                            enter = slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it / 2 } + scaleIn(initialScale = 0.9f) + fadeIn(),
+                            exit = slideOutVertically(tween(200)) { it / 2 } + fadeOut(),
                         ),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
@@ -779,17 +812,19 @@ fun PlayerScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                TimeText(
-                                    ms = { seekPreview ?: positionMs },
+                                Text(
+                                    text = formatTime(seekPreview ?: positionMs),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = Color.White.copy(alpha = 0.88f),
                                 )
-                                TimeText(
-                                    ms = { durationMs },
+                                Text(
+                                    text = formatTime(durationMs),
+                                    style = MaterialTheme.typography.labelSmall,
                                     color = Color.White.copy(alpha = 0.88f),
                                 )
                             }
                             SeekBar(
-                                position = { positionMs }, duration = { durationMs },
+                                position = positionMs, duration = durationMs,
                                 onSeek = { doSeek(it) },
                                 onPreview = { ms ->
                                     seekPreview = ms
@@ -823,7 +858,6 @@ fun PlayerScreen(
                                     AnimatedContent(
                                         targetState = isPlaying,
                                         transitionSpec = {
-                                            if (Perf.enabled) EnterTransition.None togetherWith ExitTransition.None else
                                             (scaleIn(spring(0.5f, Spring.StiffnessMedium), initialScale = 0.4f) + fadeIn(tween(120))) togetherWith
                                                 (scaleOut(tween(120), targetScale = 0.4f) + fadeOut(tween(100)))
                                         },
@@ -906,6 +940,107 @@ fun PlayerScreen(
     if (tracksDialog && !pip) {
         TracksDialog(tracks = tracks, player = player, onClose = { tracksDialog = false })
     }
+
+    if (infoDialog && !pip) {
+        VideoInfoDialog(
+            tracks = tracks, decoder = videoDecoder, dropped = droppedCount,
+            remuxed = player.currentMediaItem?.localConfiguration?.uri?.scheme == "file",
+            onClose = { infoDialog = false },
+        )
+    }
+}
+
+private fun codecName(mime: String?): String = when {
+    mime == null -> "desconocido"
+    mime == "video/avc" -> "H.264 (AVC)"
+    mime == "video/hevc" -> "H.265 (HEVC)"
+    mime == "video/x-vnd.on2.vp9" -> "VP9"
+    mime == "video/x-vnd.on2.vp8" -> "VP8"
+    mime == "video/av01" -> "AV1"
+    mime == "video/mp4v-es" -> "MPEG-4"
+    mime == "audio/mp4a-latm" -> "AAC"
+    mime == "audio/ac3" -> "AC-3"
+    mime == "audio/eac3" -> "E-AC-3"
+    mime == "audio/opus" -> "Opus"
+    mime == "audio/vorbis" -> "Vorbis"
+    mime == "audio/mpeg" -> "MP3"
+    mime == "audio/flac" -> "FLAC"
+    mime.startsWith("audio/vnd.dts") -> "DTS"
+    else -> mime
+}
+
+/** Los decodificadores de software de Android (y los que no son del chip) gastan mucho más procesador. */
+private fun isSoftwareDecoder(name: String): Boolean {
+    val n = name.lowercase()
+    return n.startsWith("omx.google.") || n.startsWith("c2.android.") || n.startsWith("c2.google.") ||
+        n.contains("dav1d") || n.contains("libgav1") || n.contains("ffmpeg")
+}
+
+private fun selectedFormat(tracks: Tracks, type: Int): androidx.media3.common.Format? {
+    val g = tracks.groups.firstOrNull { it.type == type && it.isSelected } ?: return null
+    val i = (0 until g.length).firstOrNull { g.isTrackSelected(it) } ?: return null
+    return g.getTrackFormat(i)
+}
+
+@Composable
+private fun VideoInfoDialog(tracks: Tracks, decoder: String?, dropped: Int, remuxed: Boolean, onClose: () -> Unit) {
+    val video = selectedFormat(tracks, C.TRACK_TYPE_VIDEO)
+    val audio = selectedFormat(tracks, C.TRACK_TYPE_AUDIO)
+    val rows = buildList<Pair<String, String>> {
+        if (video == null) {
+            add("Video" to "sin datos todavía")
+        } else {
+            add("Códec" to codecName(video.sampleMimeType))
+            if (video.width > 0) add("Resolución" to "${video.width}×${video.height}")
+            add("Fotogramas/s" to (if (video.frameRate > 0f) "%.2f".format(video.frameRate) else "variable o desconocido"))
+            val br = if (video.averageBitrate > 0) video.averageBitrate else video.bitrate
+            add("Bitrate" to (if (br > 0) "%.1f Mb/s".format(br / 1_000_000f) else "desconocido"))
+            video.colorInfo?.let { ci ->
+                val bits = if (ci.lumaBitdepth > 8) "${ci.lumaBitdepth} bits" else "8 bits"
+                val hdr = ci.colorTransfer == C.COLOR_TRANSFER_ST2084 || ci.colorTransfer == C.COLOR_TRANSFER_HLG
+                add("Color" to (bits + if (hdr) " · HDR" else ""))
+            }
+            add("Contenedor" to (video.containerMimeType?.removePrefix("video/")?.removePrefix("x-") ?: "desconocido"))
+        }
+        add(
+            "Decodificador" to when {
+                decoder == null -> "sin datos (se ve al reproducir)"
+                isSoftwareDecoder(decoder) -> "SOFTWARE · $decoder"
+                else -> "hardware · $decoder"
+            }
+        )
+        add("Fotogramas perdidos" to dropped.toString())
+        if (audio != null) {
+            add("Audio" to (codecName(audio.sampleMimeType) + if (audio.channelCount > 0) " · ${audio.channelCount} canales" else ""))
+        }
+        add("Origen" to (if (remuxed) "copia convertida por la app" else "archivo original"))
+    }
+    GlassAlertDialog(
+        dark = true,
+        onDismissRequest = onClose,
+        title = { Text("Información del video") },
+        text = {
+            Column(
+                Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                rows.forEach { (k, v) ->
+                    Row(Modifier.fillMaxWidth()) {
+                        Text(
+                            k, Modifier.weight(0.42f),
+                            color = Color.White.copy(alpha = 0.65f), style = MaterialTheme.typography.bodySmall,
+                        )
+                        Text(
+                            v, Modifier.weight(0.58f),
+                            color = if (v.startsWith("SOFTWARE")) Color(0xFFFF9800) else Color.White,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onClose) { Text("Cerrar") } },
+    )
 }
 
 private class TrackOpt(val label: String, val group: Tracks.Group, val index: Int, val selected: Boolean)
@@ -1048,17 +1183,14 @@ private fun ScrubPreviewCard(
 
 @Composable
 private fun SeekBar(
-    position: () -> Long, duration: () -> Long,
+    position: Long, duration: Long,
     onSeek: (Long) -> Unit, onPreview: (Long?) -> Unit, onTouch: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var dragFrac by remember { mutableStateOf<Float?>(null) }
-    val frac = dragFrac ?: run {
-        val d = duration()
-        if (d > 0) (position().toFloat() / d).coerceIn(0f, 1f) else 0f
-    }
+    val frac = dragFrac ?: if (duration > 0) (position.toFloat() / duration).coerceIn(0f, 1f) else 0f
     val active = LocalUcdStyle.current.videoAccent
-    val currentDurationFn by rememberUpdatedState(duration)
+    val currentDuration by rememberUpdatedState(duration)
     val currentOnSeek by rememberUpdatedState(onSeek)
     val currentOnPreview by rememberUpdatedState(onPreview)
     val currentOnTouch by rememberUpdatedState(onTouch)
@@ -1074,15 +1206,15 @@ private fun SeekBar(
                     fun fractionOf(x: Float) = (x / w).coerceIn(0f, 1f)
                     currentOnTouch()
                     dragFrac = fractionOf(down.position.x)
-                    currentOnPreview((dragFrac!! * currentDurationFn()).toLong())
+                    currentOnPreview((dragFrac!! * currentDuration).toLong())
                     drag(down.id) { change ->
                         change.consume()
                         dragFrac = fractionOf(change.position.x)
-                        currentOnPreview((dragFrac!! * currentDurationFn()).toLong())
+                        currentOnPreview((dragFrac!! * currentDuration).toLong())
                         currentOnTouch()
                     }
                     val f = dragFrac
-                    if (f != null && currentDurationFn() > 0) currentOnSeek((f * currentDurationFn()).toLong())
+                    if (f != null && currentDuration > 0) currentOnSeek((f * currentDuration).toLong())
                     dragFrac = null
                     currentOnPreview(null)
                 }
@@ -1134,17 +1266,6 @@ private fun queryStoreDuration(ctx: Context, uri: String): Long = runCatching {
         Uri.parse(uri), arrayOf(MediaStore.Video.Media.DURATION), null, null, null,
     )?.use { c -> if (c.moveToFirst()) c.getLong(0) else 0L } ?: 0L
 }.getOrDefault(0L)
-
-/** Texto de tiempo que se actualiza solo él (lee el valor dentro de su propio ámbito) sin redibujar la pantalla entera. */
-@Composable
-private fun TimeText(ms: () -> Long, color: Color, modifier: Modifier = Modifier, prefix: String = "") {
-    Text(
-        text = prefix + formatTime(ms()),
-        style = MaterialTheme.typography.labelSmall,
-        color = color,
-        modifier = modifier,
-    )
-}
 
 private fun formatTime(ms: Long): String {
     val s = ms / 1000
