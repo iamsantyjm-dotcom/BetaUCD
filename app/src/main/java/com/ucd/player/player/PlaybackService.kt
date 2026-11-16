@@ -11,6 +11,7 @@ import kotlin.math.abs
 import kotlin.math.log10
 import android.media.audiofx.LoudnessEnhancer
 import com.ucd.player.data.UcdPrefs
+import com.ucd.player.ui.NowPlaying
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -158,6 +159,7 @@ class PlaybackService : MediaSessionService() {
             .setHandleAudioBecomingNoisy(true)
             .build()
         exo = player
+        NowPlaying.attach(player)
 
         // Al tocar la notificación se vuelve al reproductor sin recargar el video
         val openIntent = Intent(this, PlayerActivity::class.java)
@@ -253,6 +255,7 @@ class PlaybackService : MediaSessionService() {
         session = null
         serviceScope.cancel()
         exo = null
+        NowPlaying.clear()
         super.onDestroy()
     }
 }
