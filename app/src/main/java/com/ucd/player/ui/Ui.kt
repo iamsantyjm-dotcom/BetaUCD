@@ -287,7 +287,16 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     }
 
     fun play(uris: List<String>, titles: List<String>, start: Int) {
-        ctx.startActivity(PlayerActivity.intent(ctx, uris.map { Uri.parse(it) }, titles, start))
+        val exo = com.ucd.player.player.PlaybackService.exo
+        if (exo != null && exo.mediaItemCount > 0 && uris.getOrNull(start) == NowPlaying.uri) {
+            // Es el video que ya está cargado: se abre el reproductor tal como va, sin reiniciarlo
+            if (!exo.isPlaying) exo.play()
+            ctx.startActivity(
+                Intent(ctx, PlayerActivity::class.java).putExtra(PlayerActivity.EXTRA_RESUME, true)
+            )
+        } else {
+            ctx.startActivity(PlayerActivity.intent(ctx, uris.map { Uri.parse(it) }, titles, start))
+        }
     }
     fun closeSearch() { if (tab == 2) bibleQuery = "" else { query = ""; videoSearchOpen = false } }
     fun goBack() {
@@ -1625,6 +1634,7 @@ private fun VideoCollection(
         ) {
             itemsIndexed(list, key = { _, v -> v.id }) { i, v ->
                 val picked = v.id in sel.ids
+                val now = rememberIsNowPlaying(v.uri)
                 ListItem(
                     modifier = (if (Perf.enabled) Modifier else Modifier.animateItem()).popIn(v.id, i, seen)
                         .bounceClickLong(
@@ -1634,11 +1644,26 @@ private fun VideoCollection(
                         )
                         .glass(MaterialTheme.shapes.large)
                         .then(
+                            if (now) Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f), MaterialTheme.shapes.large)
+                            else Modifier
+                        )
+                        .then(
                             if (picked) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, MaterialTheme.shapes.large)
                             else Modifier
                         ),
-                    leadingContent = { VideoThumb(v.uri, Modifier.size(96.dp, 54.dp)) },
-                    headlineContent = { Text(v.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                    leadingContent = {
+                        Box {
+                            VideoThumb(v.uri, Modifier.size(96.dp, 54.dp))
+                            if (now) NowPlayingOverlay(Modifier.size(96.dp, 54.dp).clip(MaterialTheme.shapes.small))
+                        }
+                    },
+                    headlineContent = {
+                        Text(
+                            v.title, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = if (now) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                            fontWeight = if (now) FontWeight.SemiBold else null,
+                        )
+                    },
                     supportingContent = {
                         Text(
                             fmt(v.durationMs) + " · " + fmtSize(v.sizeBytes) + " · " + fmtDate(v.dateAdded),
@@ -1687,12 +1712,20 @@ private fun VideoTile(
     picked: Boolean, selecting: Boolean, onLongClick: () -> Unit,
     onClick: () -> Unit, onAdd: () -> Unit,
 ) {
+    val now = rememberIsNowPlaying(v.uri)
     Column(modifier.bounceClickLong(rs(10.dp), onLongClick, onClick)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                 .glassBorder(rs(if (compact) 12.dp else 16.dp)),
         ) {
             VideoThumb(v.uri, Modifier.fillMaxSize(), corner = if (compact) 12.dp else 16.dp)
+            if (now) {
+                NowPlayingOverlay(
+                    Modifier.fillMaxSize().clip(rs(if (compact) 12.dp else 16.dp))
+                        .border(2.dp, MaterialTheme.colorScheme.primary, rs(if (compact) 12.dp else 16.dp)),
+                    barsSize = if (compact) 18.dp else 26.dp,
+                )
+            }
             if (picked) {
                 Box(
                     Modifier.fillMaxSize().clip(rs(if (compact) 12.dp else 16.dp))
@@ -1723,6 +1756,8 @@ private fun VideoTile(
             Text(
                 v.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
                 style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall,
+                color = if (now) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                fontWeight = if (now) FontWeight.SemiBold else null,
                 modifier = Modifier.weight(1f).padding(start = 8.dp, top = 2.dp, bottom = 2.dp),
             )
             if (selecting) Spacer(Modifier.size(32.dp))
@@ -1896,14 +1931,29 @@ private fun PlaylistDetail(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 itemsIndexed(items, key = { i, _ -> keys.getOrElse(i) { "p$i" } }) { i, e ->
+                    val now = rememberIsNowPlaying(e.videoUri)
                     ListItem(
                         modifier = (if (Perf.enabled) Modifier else Modifier.animateItem()).popIn(keys.getOrElse(i) { "p$i" }, i, seen)
                             .bounceClick(rs(24.dp)) {
                                 onPlay(items.map { it.videoUri }, items.map { it.title }, i)
                             }
-                            .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)),
-                        leadingContent = { VideoThumb(e.videoUri, Modifier.size(96.dp, 54.dp)) },
-                        headlineContent = { Text(e.title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                            .background(
+                                if (now) MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)
+                            ),
+                        leadingContent = {
+                            Box {
+                                VideoThumb(e.videoUri, Modifier.size(96.dp, 54.dp))
+                                if (now) NowPlayingOverlay(Modifier.size(96.dp, 54.dp).clip(MaterialTheme.shapes.small))
+                            }
+                        },
+                        headlineContent = {
+                            Text(
+                                e.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                color = if (now) MaterialTheme.colorScheme.primary else Color.Unspecified,
+                                fontWeight = if (now) FontWeight.SemiBold else null,
+                            )
+                        },
                         trailingContent = {
                             Row {
                                 IconButton(enabled = i > 0, modifier = Modifier.size(38.dp), onClick = {
