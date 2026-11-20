@@ -28,12 +28,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.Check
-import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -68,7 +65,6 @@ fun ThemePickerDialog(
     onPick: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val cur = Themes.byId(currentId)
     GlassAlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Apariencia") },
@@ -77,11 +73,6 @@ fun ThemePickerDialog(
                 Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                SwitchRow(
-                    Icons.Rounded.DarkMode, "Modo oscuro",
-                    "Cambia entre la versión clara y la oscura del tema",
-                    cur.dark,
-                ) { onPick(Themes.toggleDark(cur)) }
                 Text(
                     "Temas: cada uno cambia colores, fondo, formas, letra y superficies de toda la app.",
                     style = MaterialTheme.typography.bodySmall,
@@ -94,35 +85,6 @@ fun ThemePickerDialog(
         confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
     )
-}
-
-@Composable
-private fun SwitchRow(
-    icon: ImageVector, title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit,
-) {
-    val cur = LocalUcdStyle.current
-    val shape = rs(20.dp)
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(cur.fg.copy(alpha = 0.06f))
-            .border(1.dp, cur.fg.copy(alpha = 0.14f), shape)
-            .clickable { onChange(!checked) }
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Text(
-                subtitle, style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-        Switch(checked = checked, onCheckedChange = onChange)
-    }
 }
 
 @Composable
