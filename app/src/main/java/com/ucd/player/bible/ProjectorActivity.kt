@@ -105,6 +105,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
+import com.ucd.player.ui.theme.LocalUcdStyle
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.material.icons.rounded.Tune
 import com.ucd.player.ui.theme.BrandChip
@@ -435,7 +441,8 @@ private fun BoxScope.GoToPanel(visible: Boolean, onGo: (Int) -> Unit, onClose: (
         Box(
             Modifier.fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.45f))
-                .pointerInput(Unit) { detectTapGestures { onClose() } },
+                .pointerInput(Unit) { detectTapGestures { onClose() } }
+                .pointerInput(Unit) { detectDragGestures { change, _ -> change.consume() } },
         )
     }
     AnimatedVisibility(
@@ -540,7 +547,8 @@ internal fun BoxScope.BgSettingsPanel(
         Box(
             Modifier.fillMaxSize()
                 .background(Color.Black.copy(alpha = 0.45f))
-                .pointerInput(Unit) { detectTapGestures { onClose() } },
+                .pointerInput(Unit) { detectTapGestures { onClose() } }
+                .pointerInput(Unit) { detectDragGestures { change, _ -> change.consume() } },
         )
     }
     AnimatedVisibility(
@@ -550,27 +558,30 @@ internal fun BoxScope.BgSettingsPanel(
         modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.88f).widthIn(max = 560.dp).heightIn(max = 460.dp),
     ) {
         val shape = rs(32.dp)
+        val P = rememberOverlayPalette()
+        CompositionLocalProvider(LocalOverlayPalette provides P) {
         Column(
             Modifier
                 .clip(shape)
-                .background(Brush.verticalGradient(listOf(Color(0xFF2A2350), Color(0xFF181A33), Color(0xFF10121F))))
+                .background(Brush.verticalGradient(listOf(P.top, P.mid, P.bottom)))
                 .drawBehind {
                     // Resplandores suaves con los colores de la marca (lavanda arriba, azul cielo abajo)
                     drawRect(Brush.radialGradient(
-                        listOf(PanelLavender.copy(alpha = 0.30f), Color.Transparent),
+                        listOf(P.a.copy(alpha = 0.30f), Color.Transparent),
                         center = Offset(size.width * 0.95f, 0f), radius = size.width * 0.75f,
                     ))
                     drawRect(Brush.radialGradient(
-                        listOf(PanelSky.copy(alpha = 0.20f), Color.Transparent),
+                        listOf(P.b.copy(alpha = 0.20f), Color.Transparent),
                         center = Offset(0f, size.height), radius = size.width * 0.8f,
                     ))
                 }
                 .border(
                     1.dp,
-                    Brush.linearGradient(listOf(PanelLavender.copy(alpha = 0.75f), Color.White.copy(alpha = 0.06f), PanelSky.copy(alpha = 0.55f))),
+                    Brush.linearGradient(listOf(P.a.copy(alpha = 0.75f), Color.White.copy(alpha = 0.06f), P.b.copy(alpha = 0.55f))),
                     shape,
                 )
                 .pointerInput(Unit) { detectTapGestures { } }
+                .nestedScroll(BlockScrollBehind)
                 .verticalScroll(rememberScrollState())
                 .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -603,9 +614,9 @@ internal fun BoxScope.BgSettingsPanel(
                 Slider(
                     value = dim, onValueChange = onDim, valueRange = 0.4f..0.9f, enabled = bgOn,
                     colors = SliderDefaults.colors(
-                        thumbColor = Color.White, activeTrackColor = PanelLavender,
+                        thumbColor = Color.White, activeTrackColor = P.a,
                         inactiveTrackColor = Color.White.copy(alpha = 0.18f),
-                        disabledThumbColor = Color.White, disabledActiveTrackColor = PanelLavender,
+                        disabledThumbColor = Color.White, disabledActiveTrackColor = P.a,
                         disabledInactiveTrackColor = Color.White.copy(alpha = 0.18f),
                     ),
                     modifier = Modifier.fillMaxWidth(),
@@ -637,15 +648,49 @@ internal fun BoxScope.BgSettingsPanel(
             }
             extra()
         }
+        }
     }
 }
 
-private val PanelLavender = Color(0xFFCDA2E4)
-private val PanelSky = Color(0xFFA9C4EC)
+/** Colores de los paneles flotantes del TV, sacados del tema activo (fondo y acento del tema). */
+internal class OverlayPalette(
+    val top: Color, val mid: Color, val bottom: Color,
+    val a: Color, val b: Color, val onA: Color,
+)
+
+internal val LocalOverlayPalette = compositionLocalOf {
+    OverlayPalette(Color(0xFF2A2350), Color(0xFF181A33), Color(0xFF10121F), Color(0xFFCDA2E4), Color(0xFFA9C4EC), Color(0xFF14152A))
+}
+
+@Composable
+internal fun rememberOverlayPalette(): OverlayPalette {
+    val st = LocalUcdStyle.current
+    return remember(st) {
+        fun opaque(c: Color) = c.copy(alpha = 1f)
+        // Acento: si es muy oscuro (temas claros) se aclara para que se vea sobre el panel oscuro
+        var a = opaque(st.accent)
+        if (a.luminance() < 0.30f) a = lerp(a, Color.White, 0.5f)
+        val b = lerp(a, Color.White, 0.45f)
+        val k = if (st.dark) 0.30f else 0.72f
+        val first = opaque(st.bg.firstOrNull() ?: Color(0xFF181A33))
+        val last = opaque(st.bg.lastOrNull() ?: first)
+        val top = lerp(lerp(first, Color.Black, k), a, 0.20f)
+        val mid = lerp(lerp(first, Color.Black, k + 0.15f), a, 0.08f)
+        val bottom = lerp(lerp(last, Color.Black, k + 0.25f), a, 0.04f)
+        OverlayPalette(top, mid, bottom, a, b, if (a.luminance() > 0.5f) Color(0xFF14152A) else Color.White)
+    }
+}
+
+/** Consume el sobrante del deslizamiento para que la pantalla de atrás no se mueva. */
+private val BlockScrollBehind = object : NestedScrollConnection {
+    override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset = available
+    override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity = available
+}
 
 /** Tarjeta suave que agrupa los controles del panel. */
 @Composable
 private fun PanelCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    val P = LocalOverlayPalette.current
     Column(
         modifier.fillMaxWidth()
             .clip(rs(22.dp))
@@ -659,16 +704,17 @@ private fun PanelCard(modifier: Modifier = Modifier, content: @Composable Column
 
 @Composable
 private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val P = LocalOverlayPalette.current
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Text(label, color = Color.White, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
         Switch(
             checked = checked, onCheckedChange = onChange, enabled = enabled,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Color.White, checkedTrackColor = PanelLavender,
+                checkedThumbColor = Color.White, checkedTrackColor = P.a,
                 checkedBorderColor = Color.Transparent,
                 uncheckedThumbColor = Color.White.copy(alpha = 0.85f), uncheckedTrackColor = Color.White.copy(alpha = 0.14f),
                 uncheckedBorderColor = Color.White.copy(alpha = 0.35f),
-                disabledCheckedThumbColor = Color.White, disabledCheckedTrackColor = PanelLavender,
+                disabledCheckedThumbColor = Color.White, disabledCheckedTrackColor = P.a,
                 disabledCheckedBorderColor = Color.Transparent,
                 disabledUncheckedThumbColor = Color.White.copy(alpha = 0.85f), disabledUncheckedTrackColor = Color.White.copy(alpha = 0.14f),
                 disabledUncheckedBorderColor = Color.White.copy(alpha = 0.35f),
@@ -680,11 +726,12 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
 /** Círculo de color para elegir el color de la letra (el elegido lleva un aro lavanda). */
 @Composable
 private fun ToneSwatch(color: Color, selected: Boolean, onClick: () -> Unit) {
+    val P = LocalOverlayPalette.current
     Box(
         Modifier.size(34.dp).clip(CircleShape).background(color)
             .border(
                 if (selected) 3.dp else 1.dp,
-                if (selected) PanelLavender else Color.White.copy(alpha = 0.40f), CircleShape,
+                if (selected) P.a else Color.White.copy(alpha = 0.40f), CircleShape,
             )
             .clickable(onClick = onClick),
     )
@@ -692,8 +739,9 @@ private fun ToneSwatch(color: Color, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun GlassChip(text: String, selected: Boolean, onClick: () -> Unit) {
+    val P = LocalOverlayPalette.current
     val base = if (selected) Modifier.clip(CircleShape)
-        .background(Brush.linearGradient(listOf(PanelLavender, PanelSky)))
+        .background(Brush.linearGradient(listOf(P.a, P.b)))
     else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.08f))
         .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
     Box(
@@ -701,7 +749,7 @@ private fun GlassChip(text: String, selected: Boolean, onClick: () -> Unit) {
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text, color = if (selected) Color(0xFF14152A) else Color.White,
+            text, color = if (selected) P.onA else Color.White,
             style = MaterialTheme.typography.labelLarge,
         )
     }
@@ -821,6 +869,7 @@ internal fun ExternalVerseScreen(prefs: UcdPrefs) {
  */
 @Composable
 internal fun ExternalExtras(prefs: UcdPrefs) {
+    val P = LocalOverlayPalette.current
     var padSize by remember { mutableStateOf(IntSize.Zero) }
     val zoomPct = (ExternalDisplay.zoom * 100).roundToInt()
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -828,12 +877,12 @@ internal fun ExternalExtras(prefs: UcdPrefs) {
             "Zoom en el TV: $zoomPct %", color = Color.White,
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = { ExternalDisplay.resetZoom() }) { Text("Restablecer", color = PanelLavender) }
+        TextButton(onClick = { ExternalDisplay.resetZoom() }) { Text("Restablecer", color = P.a) }
     }
     Box(
         Modifier.fillMaxWidth().height(130.dp)
             .clip(rs(20.dp)).background(Color.White.copy(alpha = 0.07f))
-            .border(1.dp, PanelSky.copy(alpha = 0.35f), rs(20.dp))
+            .border(1.dp, P.b.copy(alpha = 0.35f), rs(20.dp))
             .onSizeChanged { padSize = it }
             .pointerInput(Unit) {
                 // Dos dedos: acercar / alejar (el punto entre los dedos se queda en su sitio)
