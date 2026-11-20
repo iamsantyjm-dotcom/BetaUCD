@@ -73,7 +73,6 @@ class UcdStyle(
     val font: FontFamily = FontFamily.Default,
     val titleWeight: FontWeight? = null,
     val titleSize: Float = 18f,   // tamaño del título de la barra superior (sp)
-    val twin: String? = null,     // id de la versión clara u oscura de este mismo tema
 )
 
 object Themes {
@@ -123,34 +122,6 @@ object Themes {
         selText = Color(0xFFE8EEFF),
     )
 
-    val Sunset = UcdStyle(
-        id = "sunset", name = "Atardecer",
-        description = "Degradado naranja cálido con cristal esmerilado claro.",
-        dark = false,
-        bg = listOf(Color(0xFFFFD3B0), Color(0xFFFFA575), Color(0xFFF0825C)),
-        glows = listOf(
-            Glow(Color(0x66FFFFFF), 0.2f, 0.1f, 0.8f),
-            Glow(Color(0x55E8603A), 0.9f, 1.0f, 1.0f),
-        ),
-        fg = Color(0xFF3A1F14), muted = Color(0xFF7A5646),
-        accent = Color(0xFFC63D12), onAccent = Color.White,
-        videoAccent = Color(0xFFFFB38A), christRed = Color(0xFFB3261E),
-        surface = Color(0xFFFFF1E6), outline = Color(0x55FFFFFF), panel = Color(0xFFFFF1E6),
-        glassBase = Color.White.copy(alpha = 0.18f), glassTint = Color.White,
-        fillTop = 0.62f, fillBottom = 0.30f,
-        edgeA = Color.White, edgeB = Color.Black.copy(alpha = 0.07f), edgeC = Color.White.copy(alpha = 0.80f),
-        sheen = 0.40f, glow = 0.95f,
-        navBg = Color(0xE03A1F14), navMuted = Color(0xFFF0D2C0),
-        fabBg = Color.White, fabFg = Color(0xFF3A1F14),
-        pastels = listOf(
-            Color(0xFFFFE0C7), Color(0xFFFFD0C2), Color(0xFFF8E7B5), Color(0xFFF5C6D0), Color(0xFFFFEAD6),
-        ),
-        pastelText = Color(0xFF3A1F14),
-        selFill = Color.White.copy(alpha = 0.60f), selBorder = Color.White.copy(alpha = 0.90f),
-        selText = Color(0xFF3A1F14),
-        corner = 1.2f,
-    )
-
     val Forest = UcdStyle(
         id = "forest", name = "Bosque",
         description = "Verde bosque profundo con cristal de bruma y acento esmeralda.",
@@ -175,20 +146,6 @@ object Themes {
         pastelText = Color(0xFF0E2A1D),
         selFill = Color(0xFF7DD3A8).copy(alpha = 0.18f), selBorder = Color(0xFF7DD3A8).copy(alpha = 0.45f),
         selText = Color(0xFFE9F3EC),
-    )
-
-    val Parchment = UcdStyle(
-        id = "parchment", name = "Pergamino",
-        description = "Papel crema, letra con serifa y esquinas sobrias. Ideal para leer la Biblia.",
-        dark = false, flat = true,
-        bg = listOf(Color(0xFFF4ECD8), Color(0xFFEFE4CA), Color(0xFFEADDBF)),
-        glows = listOf(Glow(Color(0x26B58A4A), 0.5f, 1.1f, 1.1f)),
-        fg = Color(0xFF2E2418), muted = Color(0xFF76664F),
-        accent = Color(0xFF8A4B1F), onAccent = Color(0xFFFFF6E6),
-        videoAccent = Color(0xFFE6BE8A), christRed = Color(0xFFB3261E),
-        surface = Color(0xFFFAF4E4), outline = Color(0xFFCDBB94), panel = Color(0xFFFAF4E4),
-        selFill = Color(0xFF8A4B1F), selBorder = Color.Transparent, selText = Color(0xFFFFF6E6),
-        corner = 0.45f, font = FontFamily.Serif,
     )
 
     val Paper = UcdStyle(
@@ -289,45 +246,12 @@ object Themes {
         ),
         selFill = Color.White, selBorder = Color.Transparent, selText = Color(0xFF1E2A25),
         corner = 1.1f, titleWeight = FontWeight.SemiBold, titleSize = 26f,
-        twin = "sage_light",
     )
 
-    /** Salvia en versión clara: verde suave y luminoso con texto oscuro. */
-    val SageLight = UcdStyle(
-        id = "sage_light", name = "Salvia clara",
-        description = "La versión clara de Salvia: verde menta luminoso con cristal blanco.",
-        dark = false,
-        bg = listOf(Color(0xFFDCEBE2), Color(0xFFC3D9CC), Color(0xFFAFC9BA)),
-        glows = listOf(
-            Glow(Color(0x73FFFFFF), 0.2f, 0.0f, 0.8f),
-            Glow(Color(0x66BDE8CF), 0.8f, 0.3f, 0.7f),
-            Glow(Color(0x40FFF1B0), 0.9f, 0.95f, 0.6f),
-            Glow(Color(0x2E2F5545), 0.7f, 0.6f, 0.8f),
-        ),
-        fg = Color(0xFF1C2B24), muted = Color(0xFF54695E),
-        accent = Color(0xFF2E6A52), onAccent = Color.White,
-        videoAccent = Color(0xFFFFF48A), christRed = Color(0xFFB3261E),
-        surface = Color(0xFFF1F7F3), outline = Color(0x99FFFFFF), panel = Color(0xFFE8F1EB),
-        glassBase = Color.White.copy(alpha = 0.10f), glassTint = Color.White,
-        fillTop = 0.58f, fillBottom = 0.22f,
-        edgeA = Color.White, edgeB = Color.White.copy(alpha = 0.18f), edgeC = Color.White.copy(alpha = 0.85f),
-        sheen = 0.36f, glow = 0.85f, rim = 0.28f,
-        navBg = Color(0xE0233229), navMuted = Color(0xFFCCDCD2),
-        fabBg = Color.White, fabFg = Color(0xFF1C2B24),
-        pastels = listOf(
-            Color(0xFFBFE3D2), Color(0xFFC9DDF7), Color(0xFFD8CCF3), Color(0xFFF5C6DD), Color(0xFFF4EFC2),
-        ),
-        selFill = Color.White, selBorder = Color.Transparent, selText = Color(0xFF1C2B24),
-        corner = 1.1f, titleWeight = FontWeight.SemiBold, titleSize = 26f,
-        twin = "sage",
-    )
-
-    val all: List<UcdStyle> = listOf(Midnight, CrystalNight, Sage, SageLight, Graphite, Sunset, Forest, Parchment, Paper, Amoled, Neon)
+    val all: List<UcdStyle> = listOf(Midnight, CrystalNight, Sage, Graphite, Forest, Paper, Amoled, Neon)
 
     fun byId(id: String?): UcdStyle = all.firstOrNull { it.id == id } ?: Midnight
 
-    /** Id del tema al que se pasa con el interruptor de modo oscuro. */
-    fun toggleDark(cur: UcdStyle): String = cur.twin ?: if (cur.dark) Paper.id else Midnight.id
 }
 
 /** Tema activo. Es "estático" para que, al cambiarlo, se redibuje toda la pantalla. */
