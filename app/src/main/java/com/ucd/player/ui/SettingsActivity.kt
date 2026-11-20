@@ -40,6 +40,25 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.material3.TextField
 import androidx.compose.ui.Alignment
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.graphics.graphicsLayer
+import com.ucd.player.data.Perf
+import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -399,34 +418,49 @@ private fun SettingsScreen(prefs: UcdPrefs, onBack: () -> Unit) {
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (current < 0) {
-                SearchField(query) { query = it }
-                Spacer(Modifier.height(4.dp))
-            }
-            when {
-                searching -> {
-                    val q = norm(query.trim())
-                    val found = items.filter {
-                        norm(it.title).contains(q) || norm(it.keywords).contains(q) ||
-                            norm(CATEGORY_NAMES[it.cat]).contains(q)
-                    }
-                    if (found.isEmpty()) {
-                        Text(
-                            "No hay ajustes que coincidan con \"${query.trim()}\".",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                            modifier = Modifier.padding(8.dp),
-                        )
-                    } else found.forEach { it.content() }
-                }
-                current >= 0 -> items.filter { it.cat == current }.forEach { it.content() }
-                else -> Column(Modifier.fillMaxWidth().glass(MaterialTheme.shapes.large)) {
-                    CATEGORY_NAMES.forEachIndexed { i, name ->
-                        if (i > 0) HorizontalDivider(
-                            Modifier.padding(start = 72.dp),
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
-                        )
-                        CategoryRow(CATEGORY_ICONS[i], name, summaries[i]) { current = i }
+            AnimatedVisibility(
+                visible = current < 0,
+                enter = if (Perf.enabled) EnterTransition.None else fadeIn(tween(250)) + expandVertically(tween(250)),
+                exit = if (Perf.enabled) ExitTransition.None else fadeOut(tween(200)) + shrinkVertically(tween(200)),
+            ) { SearchField(query) { query = it } }
+
+            // -2 = resultados de búsqueda, -1 = categorías, 0.. = categoría abierta.
+            val view = if (searching) -2 else current
+            AnimatedContent(
+                targetState = view,
+                transitionSpec = {
+                    if (Perf.enabled) EnterTransition.None togetherWith ExitTransition.None
+                    else if (initialState == -1) {
+                        (slideInHorizontally(tween(300)) { it / 4 } + fadeIn(tween(300))) togetherWith
+                            (slideOutHorizontally(tween(300)) { -it / 4 } + fadeOut(tween(200)))
+                    } else if (targetState == -1) {
+                        (slideInHorizontally(tween(300)) { -it / 4 } + fadeIn(tween(300))) togetherWith
+                            (slideOutHorizontally(tween(300)) { it / 4 } + fadeOut(tween(200)))
+                    } else fadeIn(tween(200)) togetherWith fadeOut(tween(150))
+                },
+                label = "settingsPage",
+            ) { v ->
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    when {
+                        v == -2 -> {
+                            val q = norm(query.trim())
+                            val found = items.filter {
+                                norm(it.title).contains(q) || norm(it.keywords).contains(q) ||
+                                    norm(CATEGORY_NAMES[it.cat]).contains(q)
+                            }
+                            if (found.isEmpty()) {
+                                Text(
+                                    "No hay ajustes que coincidan con \"${query.trim()}\".",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                                    modifier = Modifier.padding(8.dp),
+                                )
+                            } else found.forEachIndexed { i, it -> Appear(i) { it.content() } }
+                        }
+                        v >= 0 -> items.filter { it.cat == v }.forEachIndexed { i, it -> Appear(i) { it.content() } }
+                        else -> CATEGORY_NAMES.forEachIndexed { i, name ->
+                            Appear(i) { CategoryRow(CATEGORY_ICONS[i], name, summaries[i]) { current = i } }
+                        }
                     }
                 }
             }
@@ -473,10 +507,22 @@ private fun SearchField(value: String, onChange: (String) -> Unit) {
     )
 }
 
+/** Aparece con fundido y un pequeño desplazamiento hacia arriba, escalonado según su posición. */
+@Composable
+private fun Appear(index: Int, content: @Composable () -> Unit) {
+    if (Perf.enabled) { content(); return }
+    var shown by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { delay(index * 45L); shown = true }
+    val a by animateFloatAsState(if (shown) 1f else 0f, tween(340), label = "appear")
+    Box(Modifier.graphicsLayer { alpha = a; translationY = (1f - a) * 36f }) { content() }
+}
+
 @Composable
 private fun CategoryRow(icon: ImageVector, title: String, summary: String, onClick: () -> Unit) {
+    val shape = MaterialTheme.shapes.large
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        Modifier.fillMaxWidth().bounceClick(shape, onClick).glass(shape)
+            .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
@@ -487,10 +533,13 @@ private fun CategoryRow(icon: ImageVector, title: String, summary: String, onCli
         ) { Icon(icon, null, tint = MaterialTheme.colorScheme.primary) }
         Column(Modifier.weight(1f)) {
             Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(
-                summary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-            )
+            val sub: @Composable (String) -> Unit = {
+                Text(
+                    it, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                )
+            }
+            if (Perf.enabled) sub(summary) else Crossfade(summary, animationSpec = tween(250), label = "summary") { sub(it) }
         }
         Icon(Icons.Rounded.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f))
     }
@@ -565,12 +614,14 @@ private fun ChoiceSetting(
                 ) {
                     options.forEachIndexed { i, label ->
                         val on = i == selected
+                        val chipBg by animateColorAsState(
+                            if (on) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f),
+                            tween(220), label = "chip",
+                        )
                         Box(
                             Modifier.clip(CircleShape)
-                                .background(
-                                    if (on) MaterialTheme.colorScheme.primary
-                                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)
-                                )
+                                .background(chipBg)
                                 .clickable { onSelect(i) }
                                 .padding(horizontal = 14.dp, vertical = 8.dp),
                         ) {
