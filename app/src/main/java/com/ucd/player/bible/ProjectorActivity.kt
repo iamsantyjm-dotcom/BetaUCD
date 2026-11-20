@@ -104,6 +104,10 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.material.icons.rounded.Tune
+import com.ucd.player.ui.theme.BrandChip
 import com.ucd.player.data.Perf
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
@@ -543,69 +547,114 @@ internal fun BoxScope.BgSettingsPanel(
         visible = visible,
         enter = fadeIn(tween(200)) + scaleIn(initialScale = 0.94f),
         exit = fadeOut(tween(160)) + scaleOut(targetScale = 0.94f),
-        modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.82f).widthIn(max = 560.dp).heightIn(max = 340.dp),
+        modifier = Modifier.align(Alignment.Center).fillMaxWidth(0.88f).widthIn(max = 560.dp).heightIn(max = 460.dp),
     ) {
         val shape = rs(32.dp)
         Column(
-            Modifier.glassPanel(shape, dark = true)
+            Modifier
+                .clip(shape)
+                .background(Brush.verticalGradient(listOf(Color(0xFF2A2350), Color(0xFF181A33), Color(0xFF10121F))))
+                .drawBehind {
+                    // Resplandores suaves con los colores de la marca (lavanda arriba, azul cielo abajo)
+                    drawRect(Brush.radialGradient(
+                        listOf(PanelLavender.copy(alpha = 0.30f), Color.Transparent),
+                        center = Offset(size.width * 0.95f, 0f), radius = size.width * 0.75f,
+                    ))
+                    drawRect(Brush.radialGradient(
+                        listOf(PanelSky.copy(alpha = 0.20f), Color.Transparent),
+                        center = Offset(0f, size.height), radius = size.width * 0.8f,
+                    ))
+                }
+                .border(
+                    1.dp,
+                    Brush.linearGradient(listOf(PanelLavender.copy(alpha = 0.75f), Color.White.copy(alpha = 0.06f), PanelSky.copy(alpha = 0.55f))),
+                    shape,
+                )
                 .pointerInput(Unit) { detectTapGestures { } }
                 .verticalScroll(rememberScrollState())
-                .padding(start = 22.dp, end = 12.dp, top = 8.dp, bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+                .padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                BrandChip(Icons.Rounded.Tune, Modifier.size(34.dp))
+                Spacer(Modifier.width(12.dp))
                 Text(
                     "Fondo y letra", color = Color.White,
                     style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.weight(1f),
                 )
-                IconButton(onClick = onClose) { Icon(Icons.Rounded.Close, "Cerrar", tint = Color.White) }
+                Box(
+                    Modifier.size(36.dp).clip(CircleShape)
+                        .background(Color.White.copy(alpha = 0.10f))
+                        .border(1.dp, Color.White.copy(alpha = 0.18f), CircleShape)
+                        .clickable(onClick = onClose),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Rounded.Close, "Cerrar", tint = Color.White, modifier = Modifier.size(20.dp)) }
             }
-            Row(Modifier.fillMaxWidth().padding(end = 10.dp), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                SwitchRow("Imagen de fondo", bgOn, onBg, Modifier.weight(1f))
+            PanelCard {
+                SwitchRow("Imagen de fondo", bgOn, onBg, Modifier.fillMaxWidth())
                 SwitchRow(
                     "Movimiento suave", motion, onMotion,
-                    Modifier.weight(1f).alpha(if (bgOn) 1f else 0.4f), enabled = bgOn,
+                    Modifier.fillMaxWidth().alpha(if (bgOn) 1f else 0.4f), enabled = bgOn,
                 )
             }
-            Row(
-                Modifier.fillMaxWidth().padding(end = 10.dp).alpha(if (bgOn) 1f else 0.4f),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("Oscurecer", color = Color.White, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.width(92.dp))
+            PanelCard(Modifier.alpha(if (bgOn) 1f else 0.4f)) {
+                Text("Oscurecer", color = Color.White, style = MaterialTheme.typography.bodyMedium)
                 Slider(
                     value = dim, onValueChange = onDim, valueRange = 0.4f..0.9f, enabled = bgOn,
                     colors = SliderDefaults.colors(
-                        thumbColor = Color.White, activeTrackColor = Color.White,
-                        inactiveTrackColor = Color.White.copy(alpha = 0.25f),
+                        thumbColor = Color.White, activeTrackColor = PanelLavender,
+                        inactiveTrackColor = Color.White.copy(alpha = 0.18f),
+                        disabledThumbColor = Color.White, disabledActiveTrackColor = PanelLavender,
+                        disabledInactiveTrackColor = Color.White.copy(alpha = 0.18f),
                     ),
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
-            Row(Modifier.fillMaxWidth().padding(end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Color de la letra", color = Color.White,
-                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
-                )
-                TextTones.forEachIndexed { i, t ->
-                    ToneSwatch(t.color, i == tone) { onTone(i) }
-                    Spacer(Modifier.width(10.dp))
+            PanelCard {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Color de la letra", color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
+                    )
+                    TextTones.forEachIndexed { i, t ->
+                        ToneSwatch(t.color, i == tone) { onTone(i) }
+                        if (i < TextTones.lastIndex) Spacer(Modifier.width(10.dp))
+                    }
                 }
             }
-            Text(
-                "Cambiar de imagen", color = Color.White.copy(alpha = 0.75f),
-                style = MaterialTheme.typography.labelMedium,
-                modifier = Modifier.alpha(if (bgOn) 1f else 0.4f),
-            )
-            Row(
-                Modifier.horizontalScroll(rememberScrollState()).alpha(if (bgOn) 1f else 0.4f),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                BgModeLabels.forEachIndexed { i, label -> GlassChip(label, mode == i) { onMode(i) } }
+            PanelCard(Modifier.alpha(if (bgOn) 1f else 0.4f)) {
+                Text(
+                    "Cambiar de imagen", color = Color.White.copy(alpha = 0.8f),
+                    style = MaterialTheme.typography.labelMedium,
+                )
+                Row(
+                    Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    BgModeLabels.forEachIndexed { i, label -> GlassChip(label, mode == i) { onMode(i) } }
+                }
             }
             extra()
         }
     }
+}
+
+private val PanelLavender = Color(0xFFCDA2E4)
+private val PanelSky = Color(0xFFA9C4EC)
+
+/** Tarjeta suave que agrupa los controles del panel. */
+@Composable
+private fun PanelCard(modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier.fillMaxWidth()
+            .clip(rs(22.dp))
+            .background(Color.White.copy(alpha = 0.07f))
+            .border(1.dp, Color.White.copy(alpha = 0.12f), rs(22.dp))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+        content = content,
+    )
 }
 
 @Composable
@@ -615,35 +664,44 @@ private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Un
         Switch(
             checked = checked, onCheckedChange = onChange, enabled = enabled,
             colors = SwitchDefaults.colors(
-                checkedThumbColor = Color(0xFF0A0F1E), checkedTrackColor = Color.White.copy(alpha = 0.92f),
+                checkedThumbColor = Color.White, checkedTrackColor = PanelLavender,
                 checkedBorderColor = Color.Transparent,
-                uncheckedThumbColor = Color.White.copy(alpha = 0.85f), uncheckedTrackColor = Color.White.copy(alpha = 0.18f),
-                uncheckedBorderColor = Color.White.copy(alpha = 0.4f),
+                uncheckedThumbColor = Color.White.copy(alpha = 0.85f), uncheckedTrackColor = Color.White.copy(alpha = 0.14f),
+                uncheckedBorderColor = Color.White.copy(alpha = 0.35f),
+                disabledCheckedThumbColor = Color.White, disabledCheckedTrackColor = PanelLavender,
+                disabledCheckedBorderColor = Color.Transparent,
+                disabledUncheckedThumbColor = Color.White.copy(alpha = 0.85f), disabledUncheckedTrackColor = Color.White.copy(alpha = 0.14f),
+                disabledUncheckedBorderColor = Color.White.copy(alpha = 0.35f),
             ),
         )
     }
 }
 
-/** Círculo de color para elegir el color de la letra (el elegido lleva un aro blanco). */
+/** Círculo de color para elegir el color de la letra (el elegido lleva un aro lavanda). */
 @Composable
 private fun ToneSwatch(color: Color, selected: Boolean, onClick: () -> Unit) {
     Box(
         Modifier.size(34.dp).clip(CircleShape).background(color)
-            .border(if (selected) 3.dp else 1.dp, Color.White.copy(alpha = if (selected) 1f else 0.45f), CircleShape)
+            .border(
+                if (selected) 3.dp else 1.dp,
+                if (selected) PanelLavender else Color.White.copy(alpha = 0.40f), CircleShape,
+            )
             .clickable(onClick = onClick),
     )
 }
 
 @Composable
 private fun GlassChip(text: String, selected: Boolean, onClick: () -> Unit) {
-    val base = if (selected) Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.92f))
-    else Modifier.glass(CircleShape, dark = true)
+    val base = if (selected) Modifier.clip(CircleShape)
+        .background(Brush.linearGradient(listOf(PanelLavender, PanelSky)))
+    else Modifier.clip(CircleShape).background(Color.White.copy(alpha = 0.08f))
+        .border(1.dp, Color.White.copy(alpha = 0.22f), CircleShape)
     Box(
         base.clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
-            text, color = if (selected) Color(0xFF0A0F1E) else Color.White,
+            text, color = if (selected) Color(0xFF14152A) else Color.White,
             style = MaterialTheme.typography.labelLarge,
         )
     }
@@ -765,17 +823,17 @@ internal fun ExternalVerseScreen(prefs: UcdPrefs) {
 internal fun ExternalExtras(prefs: UcdPrefs) {
     var padSize by remember { mutableStateOf(IntSize.Zero) }
     val zoomPct = (ExternalDisplay.zoom * 100).roundToInt()
-    Row(Modifier.fillMaxWidth().padding(end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(
             "Zoom en el TV: $zoomPct %", color = Color.White,
             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f),
         )
-        TextButton(onClick = { ExternalDisplay.resetZoom() }) { Text("Restablecer", color = Color.White) }
+        TextButton(onClick = { ExternalDisplay.resetZoom() }) { Text("Restablecer", color = PanelLavender) }
     }
     Box(
-        Modifier.fillMaxWidth().padding(end = 10.dp).height(130.dp)
-            .clip(rs(20.dp)).background(Color.White.copy(alpha = 0.10f))
-            .border(1.dp, Color.White.copy(alpha = 0.25f), rs(20.dp))
+        Modifier.fillMaxWidth().height(130.dp)
+            .clip(rs(20.dp)).background(Color.White.copy(alpha = 0.07f))
+            .border(1.dp, PanelSky.copy(alpha = 0.35f), rs(20.dp))
             .onSizeChanged { padSize = it }
             .pointerInput(Unit) {
                 // Dos dedos: acercar / alejar (el punto entre los dedos se queda en su sitio)
