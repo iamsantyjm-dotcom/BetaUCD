@@ -273,13 +273,13 @@ private fun glassAccent(st: UcdStyle, onVideo: Boolean) =
     if (onVideo && !st.dark) Color(0xFFE8C9A6) else st.accent
 
 /**
- * Panel flotante (menús, diálogos y barra inferior): lleva una base casi opaca debajo de la
+ * Panel flotante (menús, diálogos y barra inferior): lleva una base casi opaca (97 %) debajo de la
  * superficie del tema para que se lea bien aunque haya miniaturas o videos detrás.
  */
 @Composable
 fun Modifier.glassPanel(shape: Shape, dark: Boolean? = null): Modifier {
     val st = LocalUcdStyle.current
-    val base = if (dark == true) Color(0xFF16161A).copy(alpha = 0.90f) else st.panel.copy(alpha = 0.90f)
+    val base = if (dark == true) Color(0xFF16161A).copy(alpha = 0.97f) else st.panel.copy(alpha = 0.97f)
     return this.clip(shape).background(base).glass(shape, dark)
 }
 
