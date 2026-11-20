@@ -24,6 +24,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -170,53 +178,96 @@ fun BibleTab(
     }
 }
 
+private val PillLavender = Color(0xFFCDA2E4)
+private val PillSky = Color(0xFFA9C4EC)
+
+/** Botón redondo de la barra del TV: se ve como botón (fondo y borde propios), no como un icono suelto. */
+@Composable
+private fun PillButton(
+    icon: ImageVector, desc: String, onClick: () -> Unit,
+    enabled: Boolean = true, active: Boolean = false, accent: Boolean = false,
+) {
+    val bg = when {
+        active -> Brush.linearGradient(listOf(PillLavender, PillSky))
+        accent -> Brush.linearGradient(listOf(PillLavender.copy(alpha = 0.28f), PillSky.copy(alpha = 0.22f)))
+        else -> Brush.linearGradient(listOf(Color.White.copy(alpha = 0.13f), Color.White.copy(alpha = 0.07f)))
+    }
+    Box(
+        Modifier.size(44.dp).clip(CircleShape).background(bg)
+            .border(1.dp, if (active) Color.White.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.20f), CircleShape)
+            .alpha(if (enabled) 1f else 0.35f)
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, desc, tint = if (active) Color(0xFF14152A) else Color.White, modifier = Modifier.size(24.dp))
+    }
+}
+
 /** Barra del TV: interruptor de pantalla externa y, si está encendida, anterior / siguiente, negro y ajustes. */
 @Composable
 private fun ExternalBar(onSettings: () -> Unit) {
     val ctx = LocalContext.current
     val flat = ExternalDisplay.flat
     val on = ExternalDisplay.enabled
-    val shape = rs(28.dp)
+    val shape = rs(30.dp)
     Surface(
-        shape = shape, color = Color.Transparent, contentColor = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.fillMaxWidth().widthIn(max = 300.dp).glass(shape),
+        shape = shape, color = Color.Transparent, contentColor = Color.White,
+        modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp)
+            .shadow(14.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
+            .clip(shape)
+            // Fondo casi opaco (el texto de los versículos de atrás ya no se mezcla con los botones)
+            .background(Brush.verticalGradient(listOf(Color(0xF22A2350), Color(0xF2151730))))
+            .drawBehind {
+                drawRect(Brush.radialGradient(
+                    listOf(PillLavender.copy(alpha = 0.25f), Color.Transparent),
+                    center = Offset(size.width * 0.9f, 0f), radius = size.width * 0.7f,
+                ))
+            }
+            .border(
+                1.dp,
+                Brush.linearGradient(listOf(PillLavender.copy(alpha = 0.8f), Color.White.copy(alpha = 0.08f), PillSky.copy(alpha = 0.6f))),
+                shape,
+            ),
     ) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 4.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             // Asa: la barra se arrastra para moverla
             Box(
-                Modifier.padding(top = 2.dp).size(width = 36.dp, height = 4.dp).clip(rs(2.dp))
-                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.3f)),
+                Modifier.padding(top = 2.dp, bottom = 4.dp).size(width = 36.dp, height = 4.dp).clip(rs(2.dp))
+                    .background(Color.White.copy(alpha = 0.35f)),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Cast, null, modifier = Modifier.padding(start = 8.dp))
+                Icon(Icons.Rounded.Cast, null, tint = if (on) PillLavender else Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(start = 6.dp))
                 Text(
                     when {
                         !on -> "Pantalla externa apagada"
                         flat >= 0 -> "En el TV: ${Bible.label(flat)}"
                         else -> "TV listo: toca un versículo"
                     },
-                    style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelLarge, color = Color.White,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
                 )
-                Switch(checked = on, onCheckedChange = { ExternalDisplay.setEnabled(ctx, it) })
+                Switch(
+                    checked = on, onCheckedChange = { ExternalDisplay.setEnabled(ctx, it) },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White, checkedTrackColor = PillLavender, checkedBorderColor = Color.Transparent,
+                        uncheckedThumbColor = Color.White.copy(alpha = 0.85f), uncheckedTrackColor = Color.White.copy(alpha = 0.14f),
+                        uncheckedBorderColor = Color.White.copy(alpha = 0.35f),
+                    ),
+                )
             }
             if (on) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    IconButton(onClick = { ExternalDisplay.move(-1) }, enabled = flat >= 0) {
-                        Icon(Icons.Rounded.ChevronLeft, "Versículo anterior")
-                    }
-                    IconButton(onClick = { ExternalDisplay.move(1) }, enabled = flat >= 0) {
-                        Icon(Icons.Rounded.ChevronRight, "Versículo siguiente")
-                    }
-                    IconButton(
-                        onClick = { ExternalDisplay.blackout = !ExternalDisplay.blackout }, enabled = flat >= 0,
-                    ) {
-                        Icon(
-                            if (ExternalDisplay.blackout) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
-                            "TV en negro",
-                        )
-                    }
-                    IconButton(onClick = onSettings) { Icon(Icons.Rounded.Tune, "Fondo, letra y zoom del TV") }
+                // Línea fina que separa el estado de los botones
+                Box(Modifier.padding(vertical = 6.dp).fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.10f)))
+                Row(Modifier.fillMaxWidth().padding(bottom = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
+                    PillButton(Icons.Rounded.ChevronLeft, "Versículo anterior", { ExternalDisplay.move(-1) }, enabled = flat >= 0)
+                    PillButton(Icons.Rounded.ChevronRight, "Versículo siguiente", { ExternalDisplay.move(1) }, enabled = flat >= 0)
+                    PillButton(
+                        if (ExternalDisplay.blackout) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
+                        "TV en negro", { ExternalDisplay.blackout = !ExternalDisplay.blackout },
+                        enabled = flat >= 0, active = ExternalDisplay.blackout,
+                    )
+                    PillButton(Icons.Rounded.Tune, "Fondo, letra y zoom del TV", onSettings, accent = true)
                 }
             }
         }
