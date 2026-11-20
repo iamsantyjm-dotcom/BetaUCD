@@ -52,6 +52,8 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.ucd.player.bible.BgSettingsPanel
 import com.ucd.player.bible.ExternalDisplay
+import com.ucd.player.bible.LocalOverlayPalette
+import com.ucd.player.bible.rememberOverlayPalette
 import com.ucd.player.bible.ExternalExtras
 import com.ucd.player.bible.ProjectorActivity
 import com.ucd.player.data.Bible
@@ -178,8 +180,6 @@ fun BibleTab(
     }
 }
 
-private val PillLavender = Color(0xFFCDA2E4)
-private val PillSky = Color(0xFFA9C4EC)
 
 /** Botón redondo de la barra del TV: se ve como botón (fondo y borde propios), no como un icono suelto. */
 @Composable
@@ -187,9 +187,10 @@ private fun PillButton(
     icon: ImageVector, desc: String, onClick: () -> Unit,
     enabled: Boolean = true, active: Boolean = false, accent: Boolean = false,
 ) {
+    val P = LocalOverlayPalette.current
     val bg = when {
-        active -> Brush.linearGradient(listOf(PillLavender, PillSky))
-        accent -> Brush.linearGradient(listOf(PillLavender.copy(alpha = 0.28f), PillSky.copy(alpha = 0.22f)))
+        active -> Brush.linearGradient(listOf(P.a, P.b))
+        accent -> Brush.linearGradient(listOf(P.a.copy(alpha = 0.28f), P.b.copy(alpha = 0.22f)))
         else -> Brush.linearGradient(listOf(Color.White.copy(alpha = 0.13f), Color.White.copy(alpha = 0.07f)))
     }
     Box(
@@ -199,7 +200,7 @@ private fun PillButton(
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, desc, tint = if (active) Color(0xFF14152A) else Color.White, modifier = Modifier.size(24.dp))
+        Icon(icon, desc, tint = if (active) P.onA else Color.White, modifier = Modifier.size(24.dp))
     }
 }
 
@@ -210,22 +211,24 @@ private fun ExternalBar(onSettings: () -> Unit) {
     val flat = ExternalDisplay.flat
     val on = ExternalDisplay.enabled
     val shape = rs(30.dp)
+    val P = rememberOverlayPalette()
+    CompositionLocalProvider(LocalOverlayPalette provides P) {
     Surface(
         shape = shape, color = Color.Transparent, contentColor = Color.White,
         modifier = Modifier.fillMaxWidth().widthIn(max = 320.dp)
             .shadow(14.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
             .clip(shape)
             // Fondo casi opaco (el texto de los versículos de atrás ya no se mezcla con los botones)
-            .background(Brush.verticalGradient(listOf(Color(0xF22A2350), Color(0xF2151730))))
+            .background(Brush.verticalGradient(listOf(P.top.copy(alpha = 0.95f), P.bottom.copy(alpha = 0.95f))))
             .drawBehind {
                 drawRect(Brush.radialGradient(
-                    listOf(PillLavender.copy(alpha = 0.25f), Color.Transparent),
+                    listOf(P.a.copy(alpha = 0.25f), Color.Transparent),
                     center = Offset(size.width * 0.9f, 0f), radius = size.width * 0.7f,
                 ))
             }
             .border(
                 1.dp,
-                Brush.linearGradient(listOf(PillLavender.copy(alpha = 0.8f), Color.White.copy(alpha = 0.08f), PillSky.copy(alpha = 0.6f))),
+                Brush.linearGradient(listOf(P.a.copy(alpha = 0.8f), Color.White.copy(alpha = 0.08f), P.b.copy(alpha = 0.6f))),
                 shape,
             ),
     ) {
@@ -236,7 +239,7 @@ private fun ExternalBar(onSettings: () -> Unit) {
                     .background(Color.White.copy(alpha = 0.35f)),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Rounded.Cast, null, tint = if (on) PillLavender else Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(start = 6.dp))
+                Icon(Icons.Rounded.Cast, null, tint = if (on) P.a else Color.White.copy(alpha = 0.6f), modifier = Modifier.padding(start = 6.dp))
                 Text(
                     when {
                         !on -> "Pantalla externa apagada"
@@ -250,7 +253,7 @@ private fun ExternalBar(onSettings: () -> Unit) {
                 Switch(
                     checked = on, onCheckedChange = { ExternalDisplay.setEnabled(ctx, it) },
                     colors = SwitchDefaults.colors(
-                        checkedThumbColor = Color.White, checkedTrackColor = PillLavender, checkedBorderColor = Color.Transparent,
+                        checkedThumbColor = Color.White, checkedTrackColor = P.a, checkedBorderColor = Color.Transparent,
                         uncheckedThumbColor = Color.White.copy(alpha = 0.85f), uncheckedTrackColor = Color.White.copy(alpha = 0.14f),
                         uncheckedBorderColor = Color.White.copy(alpha = 0.35f),
                     ),
@@ -271,6 +274,7 @@ private fun ExternalBar(onSettings: () -> Unit) {
                 }
             }
         }
+    }
     }
 }
 
