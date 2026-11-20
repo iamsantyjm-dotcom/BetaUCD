@@ -590,26 +590,12 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     }
 
     if (newListDialog) {
-        var name by remember { mutableStateOf("") }
-        GlassAlertDialog(
-            onDismissRequest = { newListDialog = false },
-            title = { Text("Nueva lista") },
-            text = {
-                OutlinedTextField(value = name, onValueChange = { name = it }, singleLine = true,
-                    label = { Text("Nombre") },
-                    shape = rs(18.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f),
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    ))
+        NewListSheet(
+            onDismiss = { newListDialog = false },
+            onCreate = { n ->
+                if (n.isNotBlank()) scope.launch { dao.insertPlaylist(PlaylistEntity(name = n)) }
+                newListDialog = false
             },
-            confirmButton = {
-                TextButton(onClick = {
-                    if (name.isNotBlank()) scope.launch { dao.insertPlaylist(PlaylistEntity(name = name.trim())) }
-                    newListDialog = false
-                }) { Text("Crear") }
-            },
-            dismissButton = { TextButton(onClick = { newListDialog = false }) { Text("Cancelar") } },
         )
     }
 
@@ -629,33 +615,19 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     }
 
     addTargets?.let { vs ->
-        GlassAlertDialog(
-            onDismissRequest = { addTargets = null },
-            title = { Text(if (vs.size > 1) "Añadir ${vs.size} videos a lista" else "Añadir a lista") },
-            text = {
-                if (playlists.isEmpty()) {
-                    Text("Primero crea una lista en la pestaña Listas.")
-                } else {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        playlists.forEach { p ->
-                            GlassMenuItem(p.name) {
-                                val toAdd = vs
-                                scope.launch { toAdd.forEach { dao.addVideo(p.id, it.uri, it.title) } }
-                                if (toAdd.size > 1) {
-                                    Toast.makeText(ctx, "${toAdd.size} videos añadidos a \"${p.name}\"", Toast.LENGTH_SHORT).show()
-                                }
-                                selected = emptySet()
-                                addTargets = null
-                            }
-                        }
-                    }
+        AddToListSheet(
+            count = vs.size,
+            playlists = playlists,
+            onDismiss = { addTargets = null },
+            onPick = { p ->
+                val toAdd = vs
+                scope.launch { toAdd.forEach { dao.addVideo(p.id, it.uri, it.title) } }
+                if (toAdd.size > 1) {
+                    Toast.makeText(ctx, "${toAdd.size} videos añadidos a \"${p.name}\"", Toast.LENGTH_SHORT).show()
                 }
+                selected = emptySet()
+                addTargets = null
             },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = { addTargets = null }) { Text("Cerrar") } },
         )
     }
 
@@ -715,7 +687,6 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                 .filter { p -> p.isNotBlank() && VideoOps.ROOTS.any { p.startsWith(it) } && !vs.all { it.relativePath == p } }
                 .distinct().sorted()
         }
-        var newFolder by remember(vs) { mutableStateOf("") }
         fun moveTo(path: String) {
             val targets = vs
             moveTargets = null
@@ -727,36 +698,11 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                 },
             )
         }
-        GlassAlertDialog(
-            onDismissRequest = { moveTargets = null },
-            title = { Text(if (vs.size > 1) "Mover ${vs.size} videos a otra carpeta" else "Mover a otra carpeta") },
-            text = {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Column(
-                        Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        if (dests.isEmpty()) Text("No hay otras carpetas. Crea una nueva abajo.")
-                        dests.forEach { p -> GlassMenuItem(p.trimEnd('/'), Icons.Rounded.Folder) { moveTo(p) } }
-                    }
-                    OutlinedTextField(
-                        value = newFolder, onValueChange = { newFolder = it }, singleLine = true,
-                        label = { Text("Nueva carpeta en Movies") },
-                        shape = rs(18.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.28f),
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        ),
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = newFolder.isNotBlank(),
-                    onClick = { moveTo("Movies/" + newFolder.replace(Regex("[\\\\/:*?\"<>|]"), "").trim()) },
-                ) { Text("Crear y mover") }
-            },
-            dismissButton = { TextButton(onClick = { moveTargets = null }) { Text("Cancelar") } },
+        MoveToFolderSheet(
+            count = vs.size,
+            dests = dests,
+            onDismiss = { moveTargets = null },
+            onMove = { moveTo(it) },
         )
     }
 
@@ -800,44 +746,23 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     folderMenu?.let { name ->
         val thumbHidden = name in hiddenThumbs
         val folderHidden = name in hiddenFolders
-        GlassAlertDialog(
-            onDismissRequest = { folderMenu = null },
-            title = {
-                Text(
-                    name, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
-                )
+        FolderActionsSheet(
+            name = name,
+            thumbHidden = thumbHidden,
+            folderHidden = folderHidden,
+            onDismiss = { folderMenu = null },
+            onToggleThumb = {
+                val set = hiddenThumbs.toMutableSet()
+                if (!set.add(name)) set.remove(name)
+                hiddenThumbs = set; prefs.hiddenThumbs = set
+                folderMenu = null
             },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    GlassMenuItem(
-                        if (thumbHidden) "Mostrar miniatura" else "Ocultar miniatura",
-                        Icons.Rounded.Image,
-                    ) {
-                        val set = hiddenThumbs.toMutableSet()
-                        if (!set.add(name)) set.remove(name)
-                        hiddenThumbs = set; prefs.hiddenThumbs = set
-                        folderMenu = null
-                    }
-                    GlassMenuItem(
-                        if (folderHidden) "Mostrar carpeta" else "Ocultar carpeta",
-                        Icons.Rounded.Folder,
-                    ) {
-                        val set = hiddenFolders.toMutableSet()
-                        if (!set.add(name)) set.remove(name)
-                        hiddenFolders = set; prefs.hiddenFolders = set
-                        folderMenu = null
-                    }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
-                    TextButton(onClick = { folderMenu = null }, modifier = Modifier.fillMaxWidth()) {
-                        Text("Cancelar")
-                    }
-                }
+            onToggleFolder = {
+                val set = hiddenFolders.toMutableSet()
+                if (!set.add(name)) set.remove(name)
+                hiddenFolders = set; prefs.hiddenFolders = set
+                folderMenu = null
             },
-            confirmButton = {},
         )
     }
 
@@ -1225,27 +1150,19 @@ private fun SheetAction(
 private val SoftRed = Color(0xFFF08A93)
 
 /**
- * Hoja inferior con las acciones de un video: arriba la miniatura, el nombre completo, la duración
- * y el peso; debajo las acciones, con "Eliminar" aparte y en rojo suave. Usa el panel de cristal
- * del tema (sin desenfoque en vivo, para no gastar rendimiento).
+ * Hoja inferior de cristal (la misma para videos y carpetas): manija arriba, contenido y cierre
+ * animado. `content` recibe `act`, que cierra la hoja con su animación y después hace la acción.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun VideoActionsSheet(
-    v: VideoItem,
+private fun GlassActionSheet(
     onDismiss: () -> Unit,
-    onAddToList: () -> Unit,
-    onRename: () -> Unit,
-    onMove: () -> Unit,
-    onShare: () -> Unit,
-    onDelete: () -> Unit,
+    content: @Composable ColumnScope.(act: (() -> Unit) -> Unit) -> Unit,
 ) {
     val st = LocalUcdStyle.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val shape = RoundedCornerShape(topStart = 28.dp * UcdRuntime.corner, topEnd = 28.dp * UcdRuntime.corner)
-    val line = st.fg.copy(alpha = 0.15f)
-    // Cierra la hoja con su animación y después hace la acción
     fun act(after: () -> Unit) {
         scope.launch { sheetState.hide() }.invokeOnCompletion { after() }
     }
@@ -1264,7 +1181,8 @@ private fun VideoActionsSheet(
                     .fillMaxWidth()
                     .glassPanel(shape)
                     .padding(horizontal = 20.dp)
-                    .padding(top = 10.dp, bottom = 12.dp),
+                    .padding(top = 10.dp, bottom = 12.dp)
+                    .imePadding(),
             ) {
                 // Manija
                 Box(
@@ -1272,32 +1190,207 @@ private fun VideoActionsSheet(
                         .clip(CircleShape).background(st.fg.copy(alpha = 0.30f)),
                 )
                 Spacer(Modifier.height(16.dp))
-                // Qué video es: miniatura, nombre completo, duración y peso
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    VideoThumb(v.uri, Modifier.size(68.dp), corner = 16.dp)
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            v.title, style = MaterialTheme.typography.titleMedium, color = st.fg,
-                            maxLines = 4, overflow = TextOverflow.Ellipsis,
-                        )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            "${fmt(v.durationMs)} · ${fmtSize(v.sizeBytes)}",
-                            style = MaterialTheme.typography.bodyMedium, color = st.fg.copy(alpha = 0.65f),
-                        )
-                    }
-                }
-                HorizontalDivider(Modifier.padding(vertical = 12.dp), color = line)
-                SheetAction(Icons.AutoMirrored.Rounded.PlaylistAdd, "Añadir a lista", Lavender) { act(onAddToList) }
-                SheetAction(Icons.Rounded.Edit, "Renombrar", Lavender) { act(onRename) }
-                SheetAction(Icons.Rounded.FolderOpen, "Mover a otra carpeta", Lavender) { act(onMove) }
-                SheetAction(Icons.Rounded.Share, "Compartir", Lavender) { act(onShare) }
-                HorizontalDivider(Modifier.padding(vertical = 8.dp), color = line)
-                SheetAction(Icons.Rounded.Delete, "Eliminar", SoftRed) { act(onDelete) }
+                content { after -> act(after) }
                 Spacer(Modifier.navigationBarsPadding())
             }
         }
+    }
+}
+
+@Composable
+private fun SheetDivider(vertical: androidx.compose.ui.unit.Dp = 12.dp) {
+    HorizontalDivider(Modifier.padding(vertical = vertical), color = LocalUcdStyle.current.fg.copy(alpha = 0.15f))
+}
+
+/** Cabecera de la hoja de una carpeta: cuadro con el icono, el nombre y una línea de apoyo. */
+@Composable
+private fun FolderSheetHeader(
+    title: String, subtitle: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Rounded.Folder,
+) {
+    val st = LocalUcdStyle.current
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            Modifier.size(68.dp).clip(rs(16.dp)).background(Lavender.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, null, Modifier.size(34.dp), tint = Lavender) }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                title, style = MaterialTheme.typography.titleMedium, color = st.fg,
+                maxLines = 3, overflow = TextOverflow.Ellipsis,
+            )
+            Spacer(Modifier.height(2.dp))
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = st.fg.copy(alpha = 0.65f))
+        }
+    }
+}
+
+/** Acciones de un video: miniatura, nombre completo, duración y peso; "Eliminar" aparte y en rojo suave. */
+@Composable
+private fun VideoActionsSheet(
+    v: VideoItem,
+    onDismiss: () -> Unit,
+    onAddToList: () -> Unit,
+    onRename: () -> Unit,
+    onMove: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val st = LocalUcdStyle.current
+    GlassActionSheet(onDismiss) { act ->
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            VideoThumb(v.uri, Modifier.size(68.dp), corner = 16.dp)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    v.title, style = MaterialTheme.typography.titleMedium, color = st.fg,
+                    maxLines = 4, overflow = TextOverflow.Ellipsis,
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "${fmt(v.durationMs)} · ${fmtSize(v.sizeBytes)}",
+                    style = MaterialTheme.typography.bodyMedium, color = st.fg.copy(alpha = 0.65f),
+                )
+            }
+        }
+        SheetDivider()
+        SheetAction(Icons.AutoMirrored.Rounded.PlaylistAdd, "Añadir a lista", Lavender) { act(onAddToList) }
+        SheetAction(Icons.Rounded.Edit, "Renombrar", Lavender) { act(onRename) }
+        SheetAction(Icons.Rounded.FolderOpen, "Mover a otra carpeta", Lavender) { act(onMove) }
+        SheetAction(Icons.Rounded.Share, "Compartir", Lavender) { act(onShare) }
+        SheetDivider(8.dp)
+        SheetAction(Icons.Rounded.Delete, "Eliminar", SoftRed) { act(onDelete) }
+    }
+}
+
+/** Menú de una carpeta (mantener pulsada): mismo diseño que el de los videos. */
+@Composable
+private fun FolderActionsSheet(
+    name: String,
+    thumbHidden: Boolean,
+    folderHidden: Boolean,
+    onDismiss: () -> Unit,
+    onToggleThumb: () -> Unit,
+    onToggleFolder: () -> Unit,
+) {
+    GlassActionSheet(onDismiss) { act ->
+        FolderSheetHeader(name, "Carpeta")
+        SheetDivider()
+        SheetAction(Icons.Rounded.Image, if (thumbHidden) "Mostrar miniatura" else "Ocultar miniatura", Lavender) {
+            act(onToggleThumb)
+        }
+        SheetAction(Icons.Rounded.Folder, if (folderHidden) "Mostrar carpeta" else "Ocultar carpeta", Lavender) {
+            act(onToggleFolder)
+        }
+    }
+}
+
+/** Elegir a qué lista añadir los videos: mismo diseño que los demás menús. */
+@Composable
+private fun AddToListSheet(
+    count: Int,
+    playlists: List<PlaylistEntity>,
+    onDismiss: () -> Unit,
+    onPick: (PlaylistEntity) -> Unit,
+) {
+    val st = LocalUcdStyle.current
+    GlassActionSheet(onDismiss) { act ->
+        FolderSheetHeader(
+            if (count > 1) "Añadir $count videos a lista" else "Añadir a lista",
+            "Elige una lista",
+            Icons.AutoMirrored.Rounded.PlaylistAdd,
+        )
+        SheetDivider()
+        if (playlists.isEmpty()) {
+            Text(
+                "Primero crea una lista en la pestaña Listas.",
+                style = MaterialTheme.typography.bodyMedium, color = st.fg.copy(alpha = 0.65f),
+                modifier = Modifier.padding(vertical = 8.dp),
+            )
+        } else {
+            Column(Modifier.fillMaxWidth().heightIn(max = 300.dp).verticalScroll(rememberScrollState())) {
+                playlists.forEach { p ->
+                    SheetAction(Icons.AutoMirrored.Rounded.PlaylistAdd, p.name, Lavender) { act { onPick(p) } }
+                }
+            }
+        }
+    }
+}
+
+/** Crear una lista nueva: mismo diseño que los demás menús. */
+@Composable
+private fun NewListSheet(onDismiss: () -> Unit, onCreate: (String) -> Unit) {
+    val st = LocalUcdStyle.current
+    var name by remember { mutableStateOf("") }
+    GlassActionSheet(onDismiss) { act ->
+        FolderSheetHeader("Nueva lista", "Ponle un nombre", Icons.AutoMirrored.Rounded.PlaylistAdd)
+        SheetDivider()
+        OutlinedTextField(
+            value = name, onValueChange = { name = it }, singleLine = true,
+            label = { Text("Nombre") },
+            modifier = Modifier.fillMaxWidth(),
+            shape = rs(18.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedBorderColor = st.fg.copy(alpha = 0.28f),
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
+        Spacer(Modifier.height(10.dp))
+        Button(
+            enabled = name.isNotBlank(),
+            onClick = { act { onCreate(name.trim()) } },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Crear") }
+    }
+}
+
+/** Elegir la carpeta destino al mover videos: lista de carpetas y campo para crear una nueva. */
+@Composable
+private fun MoveToFolderSheet(
+    count: Int,
+    dests: List<String>,
+    onDismiss: () -> Unit,
+    onMove: (String) -> Unit,
+) {
+    val st = LocalUcdStyle.current
+    var newFolder by remember { mutableStateOf("") }
+    GlassActionSheet(onDismiss) { act ->
+        FolderSheetHeader(
+            if (count > 1) "Mover $count videos" else "Mover a otra carpeta",
+            "Elige la carpeta de destino",
+        )
+        SheetDivider()
+        Column(Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState())) {
+            if (dests.isEmpty()) {
+                Text(
+                    "No hay otras carpetas. Crea una nueva abajo.",
+                    style = MaterialTheme.typography.bodyMedium, color = st.fg.copy(alpha = 0.65f),
+                    modifier = Modifier.padding(vertical = 8.dp),
+                )
+            }
+            dests.forEach { p -> SheetAction(Icons.Rounded.Folder, p.trimEnd('/'), Lavender) { act { onMove(p) } } }
+        }
+        SheetDivider(8.dp)
+        OutlinedTextField(
+            value = newFolder, onValueChange = { newFolder = it }, singleLine = true,
+            label = { Text("Nueva carpeta en Movies") },
+            modifier = Modifier.fillMaxWidth(),
+            shape = rs(18.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                unfocusedBorderColor = st.fg.copy(alpha = 0.28f),
+                focusedBorderColor = MaterialTheme.colorScheme.primary,
+            ),
+        )
+        Spacer(Modifier.height(10.dp))
+        Button(
+            enabled = newFolder.isNotBlank(),
+            onClick = {
+                val clean = newFolder.replace(Regex("[\\\\/:*?\"<>|]"), "").trim()
+                act { onMove("Movies/$clean") }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text("Crear y mover") }
     }
 }
 
