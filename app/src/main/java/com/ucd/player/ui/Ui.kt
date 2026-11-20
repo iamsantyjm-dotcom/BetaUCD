@@ -127,6 +127,9 @@ import com.ucd.player.ui.theme.glassPanel
 import com.ucd.player.ui.theme.glassCapsule
 import com.ucd.player.ui.theme.GlassMenuItem
 import com.ucd.player.ui.theme.rs
+import com.ucd.player.ui.theme.UcdRuntime
+import androidx.compose.material.icons.automirrored.rounded.PlaylistAdd
+import androidx.compose.material.icons.automirrored.rounded.ViewList
 import com.ucd.player.ui.theme.GlassBackdrop
 import com.ucd.player.ui.theme.BackdropArt
 import com.ucd.player.ui.theme.glassBadge
@@ -435,47 +438,19 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
                             Box {
                                 GlassIconButton(onClick = { menuOpen = true }) { FourDotsIcon() }
                                 GlassDropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                                    if (tab == 0) {
-                                    MenuHeader("Vista")
-                                    ViewMode.entries.forEach { m ->
-                                        CheckItem(m.label, viewMode == m) {
-                                            viewMode = m; prefs.viewMode = m; menuOpen = false
-                                        }
-                                    }
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
-                                    MenuHeader("Ordenar por")
-                                    SortKey.entries.forEach { k ->
-                                        CheckItem(k.label, sortKey == k) {
-                                            sortKey = k; prefs.sortKey = k; menuOpen = false
-                                        }
-                                    }
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
-                                    CheckItem("Ascendente (A→Z, menor a mayor)", ascending) {
-                                        ascending = true; prefs.ascending = true; menuOpen = false
-                                    }
-                                    CheckItem("Descendente (Z→A, mayor a menor)", !ascending) {
-                                        ascending = false; prefs.ascending = false; menuOpen = false
-                                    }
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
-                                    CheckItem("Mostrar carpetas ocultas", showHidden) {
-                                        showHidden = !showHidden; menuOpen = false
-                                    }
-                                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
-                                    }
-                                    DropdownMenuItem(
-                                        text = { Text("Tema") },
-                                        onClick = { menuOpen = false; themeDialog = true },
-                                        leadingIcon = { Icon(Icons.Rounded.Palette, null) },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Ajustes") },
-                                        onClick = { menuOpen = false; ctx.startActivity(Intent(ctx, SettingsActivity::class.java)) },
-                                        leadingIcon = { Icon(Icons.Rounded.Settings, null) },
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("Transmitir pantalla") },
-                                        onClick = { menuOpen = false; openCastMenu(ctx) },
-                                        leadingIcon = { Icon(Icons.Rounded.Cast, null) },
+                                    LibraryMenuContent(
+                                        showViewAndSort = tab == 0,
+                                        viewMode = viewMode,
+                                        onViewMode = { viewMode = it; prefs.viewMode = it },
+                                        sortKey = sortKey,
+                                        onSortKey = { sortKey = it; prefs.sortKey = it },
+                                        ascending = ascending,
+                                        onAscending = { ascending = it; prefs.ascending = it },
+                                        showHidden = showHidden,
+                                        onShowHidden = { showHidden = it },
+                                        onTheme = { menuOpen = false; themeDialog = true },
+                                        onSettings = { menuOpen = false; ctx.startActivity(Intent(ctx, SettingsActivity::class.java)) },
+                                        onCast = { menuOpen = false; openCastMenu(ctx) },
                                     )
                                 }
                             }
@@ -685,34 +660,22 @@ fun UcdRoot(db: UcdDatabase, resumeTick: Int = 0, themeId: String = "midnight", 
     }
 
     videoMenu?.let { v ->
-        GlassAlertDialog(
-            onDismissRequest = { videoMenu = null },
-            title = {
-                Text(
-                    v.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(),
-                )
-            },
-            text = {
-                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    GlassMenuItem("Añadir a lista", Icons.Rounded.Add) { videoMenu = null; addTargets = listOf(v) }
-                    GlassMenuItem("Renombrar", Icons.Rounded.Edit) { videoMenu = null; renameTarget = v }
-                    GlassMenuItem("Mover a otra carpeta", Icons.Rounded.FolderOpen) { videoMenu = null; moveTargets = listOf(v) }
-                    GlassMenuItem("Compartir", Icons.Rounded.Share) {
-                        videoMenu = null
-                        val send = Intent(Intent.ACTION_SEND).apply {
-                            type = "video/*"
-                            putExtra(Intent.EXTRA_STREAM, Uri.parse(v.uri))
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        }
-                        runCatching { ctx.startActivity(Intent.createChooser(send, "Compartir video")) }
-                    }
-                    GlassMenuItem("Eliminar", Icons.Rounded.Delete) { videoMenu = null; deleteVideoTargets = listOf(v) }
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f))
-                    TextButton(onClick = { videoMenu = null }, modifier = Modifier.fillMaxWidth()) { Text("Cancelar") }
+        VideoActionsSheet(
+            v = v,
+            onDismiss = { videoMenu = null },
+            onAddToList = { videoMenu = null; addTargets = listOf(v) },
+            onRename = { videoMenu = null; renameTarget = v },
+            onMove = { videoMenu = null; moveTargets = listOf(v) },
+            onShare = {
+                videoMenu = null
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "video/*"
+                    putExtra(Intent.EXTRA_STREAM, Uri.parse(v.uri))
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
+                runCatching { ctx.startActivity(Intent.createChooser(send, "Compartir video")) }
             },
-            confirmButton = {},
+            onDelete = { videoMenu = null; deleteVideoTargets = listOf(v) },
         )
     }
 
@@ -1092,6 +1055,250 @@ private fun MenuHeader(text: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
     )
+}
+
+// ---------- Menú ⋮ de la biblioteca (estilo compacto: botones, chips e interruptor) ----------
+
+private val Lavender = Color(0xFFCDA2E4)
+
+/** Botón de "Vista": icono arriba y texto abajo; el activo se marca con borde y fondo del acento. */
+@Composable
+private fun ViewModeButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, selected: Boolean,
+    modifier: Modifier = Modifier, onClick: () -> Unit,
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    val fg = MaterialTheme.colorScheme.onSurface
+    val shape = rs(16.dp)
+    Column(
+        modifier
+            .height(64.dp)
+            .bounceClick(shape, onClick)
+            .background(if (selected) primary.copy(alpha = 0.18f) else fg.copy(alpha = 0.07f))
+            .border(1.dp, if (selected) primary.copy(alpha = 0.75f) else Color.Transparent, shape),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, null, Modifier.size(22.dp), tint = if (selected) primary else fg)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            label, style = MaterialTheme.typography.labelLarge, maxLines = 1, softWrap = false,
+            color = if (selected) primary else fg,
+        )
+    }
+}
+
+/** Una acción de la fila de abajo (Tema, Ajustes, Transmitir): icono lavanda con su texto. */
+@Composable
+private fun MenuFooterAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
+    modifier: Modifier = Modifier, onClick: () -> Unit,
+) {
+    Column(
+        modifier.bounceClick(rs(14.dp), onClick).padding(vertical = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(icon, null, Modifier.size(24.dp), tint = Lavender)
+        Spacer(Modifier.height(4.dp))
+        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LibraryMenuContent(
+    showViewAndSort: Boolean,
+    viewMode: ViewMode, onViewMode: (ViewMode) -> Unit,
+    sortKey: SortKey, onSortKey: (SortKey) -> Unit,
+    ascending: Boolean, onAscending: (Boolean) -> Unit,
+    showHidden: Boolean, onShowHidden: (Boolean) -> Unit,
+    onTheme: () -> Unit, onSettings: () -> Unit, onCast: () -> Unit,
+) {
+    val line = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+    Column(Modifier.width(296.dp).padding(horizontal = 12.dp, vertical = 4.dp)) {
+        if (showViewAndSort) {
+            // Vista: tres botones con icono
+            Text(
+                "Vista", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 8.dp),
+            )
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ViewModeButton(Icons.Rounded.GridView, "Cuadrícula", viewMode == ViewMode.Grid, Modifier.weight(1f)) {
+                    onViewMode(ViewMode.Grid)
+                }
+                ViewModeButton(Icons.Rounded.Widgets, "Compacta", viewMode == ViewMode.Compact, Modifier.weight(1f)) {
+                    onViewMode(ViewMode.Compact)
+                }
+                ViewModeButton(Icons.AutoMirrored.Rounded.ViewList, "Lista", viewMode == ViewMode.Rows, Modifier.weight(1f)) {
+                    onViewMode(ViewMode.Rows)
+                }
+            }
+
+            // Ordenar por: chips y un solo botón para el sentido
+            Row(
+                Modifier.fillMaxWidth().padding(start = 4.dp, top = 14.dp, bottom = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Ordenar por", style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f),
+                )
+                val dirLabel = when (sortKey) {
+                    SortKey.Name -> if (ascending) "A–Z" else "Z–A"
+                    SortKey.Date -> if (ascending) "Antiguos" else "Recientes"
+                    else -> if (ascending) "Menor" else "Mayor"
+                }
+                Row(
+                    Modifier
+                        .height(36.dp)
+                        .bounceClick(CircleShape) { onAscending(!ascending) }
+                        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f))
+                        .padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        if (ascending) Icons.Rounded.ArrowUpward else Icons.Rounded.ArrowDownward,
+                        "Cambiar sentido del orden", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(dirLabel, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+            FlowRow(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                SortKey.entries.forEach { k -> FilterPill(k.label, k == sortKey) { onSortKey(k) } }
+            }
+
+            HorizontalDivider(Modifier.padding(top = 14.dp), color = line)
+
+            // Carpetas ocultas: interruptor
+            Row(
+                Modifier.fillMaxWidth().padding(start = 4.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    "Mostrar carpetas ocultas", style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f),
+                )
+                Switch(checked = showHidden, onCheckedChange = onShowHidden)
+            }
+            HorizontalDivider(color = line)
+        }
+
+        // Tema, Ajustes y Transmitir: una sola fila de iconos
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 4.dp)) {
+            MenuFooterAction(Icons.Rounded.Palette, "Tema", Modifier.weight(1f), onTheme)
+            MenuFooterAction(Icons.Rounded.Settings, "Ajustes", Modifier.weight(1f), onSettings)
+            MenuFooterAction(Icons.Rounded.Cast, "Transmitir", Modifier.weight(1f), onCast)
+        }
+    }
+}
+
+// ---------- Menú de cada video (hoja inferior) ----------
+
+/** Fila sin borde de la hoja: icono en un cuadrito suave y el texto. */
+@Composable
+private fun SheetAction(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, text: String,
+    tint: Color, onClick: () -> Unit,
+) {
+    val fg = LocalUcdStyle.current.fg
+    Row(
+        Modifier.fillMaxWidth().bounceClick(rs(16.dp), onClick).padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            Modifier.size(40.dp).clip(rs(13.dp)).background(tint.copy(alpha = 0.16f)),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, null, Modifier.size(22.dp), tint = tint) }
+        Spacer(Modifier.width(16.dp))
+        Text(
+            text, style = MaterialTheme.typography.bodyLarge,
+            color = if (tint == SoftRed) tint else fg,
+        )
+    }
+}
+
+private val SoftRed = Color(0xFFF08A93)
+
+/**
+ * Hoja inferior con las acciones de un video: arriba la miniatura, el nombre completo, la duración
+ * y el peso; debajo las acciones, con "Eliminar" aparte y en rojo suave. Usa el panel de cristal
+ * del tema (sin desenfoque en vivo, para no gastar rendimiento).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun VideoActionsSheet(
+    v: VideoItem,
+    onDismiss: () -> Unit,
+    onAddToList: () -> Unit,
+    onRename: () -> Unit,
+    onMove: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val st = LocalUcdStyle.current
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val scope = rememberCoroutineScope()
+    val shape = RoundedCornerShape(topStart = 28.dp * UcdRuntime.corner, topEnd = 28.dp * UcdRuntime.corner)
+    val line = st.fg.copy(alpha = 0.15f)
+    // Cierra la hoja con su animación y después hace la acción
+    fun act(after: () -> Unit) {
+        scope.launch { sheetState.hide() }.invokeOnCompletion { after() }
+    }
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = shape,
+        containerColor = Color.Transparent,
+        tonalElevation = 0.dp,
+        dragHandle = null,
+        contentWindowInsets = { WindowInsets(0.dp, 0.dp, 0.dp, 0.dp) },
+    ) {
+        CompositionLocalProvider(LocalContentColor provides st.fg) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .glassPanel(shape)
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 10.dp, bottom = 12.dp),
+            ) {
+                // Manija
+                Box(
+                    Modifier.align(Alignment.CenterHorizontally).width(40.dp).height(4.dp)
+                        .clip(CircleShape).background(st.fg.copy(alpha = 0.30f)),
+                )
+                Spacer(Modifier.height(16.dp))
+                // Qué video es: miniatura, nombre completo, duración y peso
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    VideoThumb(v.uri, Modifier.size(68.dp), corner = 16.dp)
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            v.title, style = MaterialTheme.typography.titleMedium, color = st.fg,
+                            maxLines = 4, overflow = TextOverflow.Ellipsis,
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "${fmt(v.durationMs)} · ${fmtSize(v.sizeBytes)}",
+                            style = MaterialTheme.typography.bodyMedium, color = st.fg.copy(alpha = 0.65f),
+                        )
+                    }
+                }
+                HorizontalDivider(Modifier.padding(vertical = 12.dp), color = line)
+                SheetAction(Icons.AutoMirrored.Rounded.PlaylistAdd, "Añadir a lista", Lavender) { act(onAddToList) }
+                SheetAction(Icons.Rounded.Edit, "Renombrar", Lavender) { act(onRename) }
+                SheetAction(Icons.Rounded.FolderOpen, "Mover a otra carpeta", Lavender) { act(onMove) }
+                SheetAction(Icons.Rounded.Share, "Compartir", Lavender) { act(onShare) }
+                HorizontalDivider(Modifier.padding(vertical = 8.dp), color = line)
+                SheetAction(Icons.Rounded.Delete, "Eliminar", SoftRed) { act(onDelete) }
+                Spacer(Modifier.navigationBarsPadding())
+            }
+        }
+    }
 }
 
 @Composable
