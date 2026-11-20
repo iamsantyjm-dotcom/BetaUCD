@@ -757,7 +757,7 @@ fun PlayerScreen(
                             color = Color.Transparent, contentColor = Color.White,
                             modifier = Modifier.glass(CircleShape, dark = true),
                         ) {
-                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Atrás", Modifier.padding(8.dp).size(20.dp))
+                            Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Atrás", Modifier.padding(9.dp).size(24.dp))
                         }
                         title?.let {
                             Surface(
@@ -781,7 +781,7 @@ fun PlayerScreen(
                         color = Color.Transparent, contentColor = Color.White,
                         modifier = Modifier.align(Alignment.TopEnd).padding(12.dp).glass(CircleShape, dark = true),
                     ) {
-                        Icon(Icons.Rounded.Info, "Información del video", Modifier.padding(8.dp).size(20.dp))
+                        Icon(Icons.Rounded.Info, "Información del video", Modifier.padding(9.dp).size(24.dp))
                     }
 
                     // Fotograma exacto del punto al que se desliza la barra (solo se ve en el celular)
@@ -792,13 +792,13 @@ fun PlayerScreen(
                             player = previewPlayer, ratio = previewRatio,
                             shown = scrubMs != null && canPreview, timeMs = scrubLast, fraction = frac,
                             modifier = Modifier.align(Alignment.BottomCenter)
-                                .fillMaxWidth(0.7f)
+                                .fillMaxWidth(0.8f)
                                 .padding(bottom = barHeight + 20.dp),
                         )
                     }
 
                     Column(
-                        Modifier.align(Alignment.BottomCenter).padding(bottom = 10.dp)
+                        Modifier.align(Alignment.BottomCenter).padding(bottom = 14.dp)
                             .onSizeChanged { barHeightPx = it.height }
                             .animateEnterExit(
                             enter = slideInVertically(spring(0.65f, Spring.StiffnessMediumLow)) { it / 2 } + scaleIn(initialScale = 0.9f) + fadeIn(),
@@ -806,7 +806,7 @@ fun PlayerScreen(
                         ),
                         horizontalAlignment = Alignment.CenterHorizontally,
                     ) {
-                        Column(Modifier.fillMaxWidth(0.7f)) {
+                        Column(Modifier.fillMaxWidth(0.8f)) {
                             Row(
                                 Modifier.fillMaxWidth().padding(horizontal = 1.dp, vertical = 2.dp),
                                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -814,12 +814,12 @@ fun PlayerScreen(
                             ) {
                                 Text(
                                     text = formatTime(seekPreview ?: positionMs),
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelMedium,
                                     color = Color.White.copy(alpha = 0.88f),
                                 )
                                 Text(
                                     text = formatTime(durationMs),
-                                    style = MaterialTheme.typography.labelSmall,
+                                    style = MaterialTheme.typography.labelMedium,
                                     color = Color.White.copy(alpha = 0.88f),
                                 )
                             }
@@ -836,21 +836,21 @@ fun PlayerScreen(
                             )
                         }
                         Surface(
-                            shape = rs(28.dp),
+                            shape = rs(34.dp),
                             color = Color.Transparent, contentColor = Color.White,
-                            modifier = Modifier.glass(rs(28.dp), dark = true),
+                            modifier = Modifier.glass(rs(34.dp), dark = true),
                         ) {
                             Row(
-                                Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                IconButton(onClick = { prevVideo(); poke() }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Rounded.SkipPrevious, "Anterior", Modifier.size(20.dp))
+                                IconButton(onClick = { prevVideo(); poke() }, modifier = Modifier.size(44.dp)) {
+                                    Icon(Icons.Rounded.SkipPrevious, "Anterior", Modifier.size(25.dp))
                                 }
                                 FilledIconButton(
                                     onClick = { if (isPlaying) player.pause() else player.play(); poke() },
-                                    modifier = Modifier.size(42.dp),
+                                    modifier = Modifier.size(54.dp),
                                     colors = IconButtonDefaults.filledIconButtonColors(
                                         containerColor = LocalUcdStyle.current.videoAccent, contentColor = Color.Black,
                                     ),
@@ -866,16 +866,16 @@ fun PlayerScreen(
                                         Icon(
                                             if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                                             if (playing) "Pausar" else "Reproducir",
-                                            Modifier.size(24.dp),
+                                            Modifier.size(30.dp),
                                         )
                                     }
                                 }
-                                IconButton(onClick = { nextVideo(); poke() }, modifier = Modifier.size(36.dp)) {
-                                    Icon(Icons.Rounded.SkipNext, "Siguiente", Modifier.size(20.dp))
+                                IconButton(onClick = { nextVideo(); poke() }, modifier = Modifier.size(44.dp)) {
+                                    Icon(Icons.Rounded.SkipNext, "Siguiente", Modifier.size(25.dp))
                                 }
                                 FilledTonalIconButton(
                                     onClick = { scale = scale.next(); prefs.videoScale = scale.name; poke() },
-                                    modifier = Modifier.size(32.dp),
+                                    modifier = Modifier.size(40.dp),
                                     colors = IconButtonDefaults.filledTonalIconButtonColors(
                                         containerColor = Color.White.copy(alpha = 0.16f), contentColor = Color.White,
                                     ),
@@ -887,37 +887,37 @@ fun PlayerScreen(
                                             VideoScale.Stretch -> Icons.Rounded.AspectRatio
                                         },
                                         "Tamaño: ${scale.label}",
-                                        Modifier.size(18.dp),
+                                        Modifier.size(22.dp),
                                     )
                                 }
                                 if (multiAudio) {
-                                    IconButton(onClick = { tracksDialog = true; poke() }, modifier = Modifier.size(32.dp)) {
-                                        Icon(Icons.Rounded.Audiotrack, "Pista de audio", Modifier.size(18.dp))
+                                    IconButton(onClick = { tracksDialog = true; poke() }, modifier = Modifier.size(40.dp)) {
+                                        Icon(Icons.Rounded.Audiotrack, "Pista de audio", Modifier.size(22.dp))
                                     }
                                 }
                                 if (externalConnected) {
                                     IconButton(
                                         onClick = { castPref = !castPref; prefs.videoOnExternal = castPref; poke() },
-                                        modifier = Modifier.size(32.dp),
+                                        modifier = Modifier.size(40.dp),
                                     ) {
                                         Icon(
                                             if (castOn) Icons.Rounded.CastConnected else Icons.Rounded.Cast,
                                             if (castOn) "Ver el video en el celular" else "Ver el video en la pantalla externa",
-                                            Modifier.size(18.dp),
+                                            Modifier.size(22.dp),
                                         )
                                     }
                                 }
-                                IconButton(onClick = { queueOpen = true; controlsVisible = false }, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Rounded.VideoLibrary, "Cola de reproducción", Modifier.size(18.dp))
+                                IconButton(onClick = { queueOpen = true; controlsVisible = false }, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Rounded.VideoLibrary, "Cola de reproducción", Modifier.size(22.dp))
                                 }
-                                IconButton(onClick = onEnterPip, modifier = Modifier.size(32.dp)) {
-                                    Icon(Icons.Rounded.PictureInPictureAlt, "Imagen en imagen", Modifier.size(18.dp))
+                                IconButton(onClick = onEnterPip, modifier = Modifier.size(40.dp)) {
+                                    Icon(Icons.Rounded.PictureInPictureAlt, "Imagen en imagen", Modifier.size(22.dp))
                                 }
-                                IconButton(onClick = { blackout = !blackout }, modifier = Modifier.size(32.dp)) {
+                                IconButton(onClick = { blackout = !blackout }, modifier = Modifier.size(40.dp)) {
                                     Icon(
                                         if (blackout) Icons.Rounded.Visibility else Icons.Rounded.VisibilityOff,
                                         if (blackout) "Quitar pantalla en negro" else "Pantalla en negro",
-                                        Modifier.size(18.dp),
+                                        Modifier.size(22.dp),
                                     )
                                 }
                             }
@@ -1197,7 +1197,7 @@ private fun SeekBar(
 
     Box(
         modifier
-            .height(36.dp)
+            .height(42.dp)
             .pointerInput(Unit) {
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
@@ -1221,10 +1221,10 @@ private fun SeekBar(
             },
         contentAlignment = Alignment.CenterStart,
     ) {
-        Box(Modifier.fillMaxWidth().height(3.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.35f)))
-        Box(Modifier.fillMaxWidth(frac).height(3.dp).clip(CircleShape).background(active))
+        Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.35f)))
+        Box(Modifier.fillMaxWidth(frac).height(4.dp).clip(CircleShape).background(active))
         Row(Modifier.fillMaxWidth(frac), horizontalArrangement = Arrangement.End) {
-            Box(Modifier.size(10.dp).clip(CircleShape).background(active))
+            Box(Modifier.size(14.dp).clip(CircleShape).background(active))
         }
     }
 }
