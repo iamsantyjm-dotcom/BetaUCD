@@ -902,8 +902,9 @@ private fun NavItem(
     val glassy = !st.flat
     val selBg = if (glassy) Color.White else st.selFill
     val selFg = if (glassy) (if (st.fabFg != Color.Unspecified) st.fabFg else Color(0xFF1B2030)) else st.selText
-    val idleBg = if (glassy) Color.White.copy(alpha = 0.12f) else Color.Transparent
-    val idleFg = if (glassy) (if (st.navMuted != Color.Unspecified) st.navMuted else Color.White.copy(alpha = 0.85f)) else st.muted
+    // Botones inactivos más claros que la cápsula, con borde fino e icono blanco, para distinguirlos del fondo
+    val idleBg = if (glassy) Color.White.copy(alpha = 0.22f) else Color.Transparent
+    val idleFg = if (glassy) Color.White else st.muted
     val bg by animateColorAsState(
         if (selected) selBg else idleBg,
         if (Perf.enabled) snap<Color>() else spring<Color>(stiffness = Spring.StiffnessMediumLow), label = "navBg",
@@ -937,6 +938,7 @@ private fun NavItem(
             .height(46.dp)
             .clip(shape)
             .background(bg)
+            .then(if (glassy && !selected) Modifier.border(1.dp, Color.White.copy(alpha = 0.40f), shape) else Modifier)
             .drawWithContent {
                 drawContent()
                 val p = ripple.value

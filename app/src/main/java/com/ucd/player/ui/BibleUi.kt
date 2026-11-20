@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.Cast
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Tv
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.*
@@ -23,6 +24,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -322,6 +325,15 @@ private fun ChapterGrid(book: Int, onChapter: (Int) -> Unit) {
     }
 }
 
+/** Color del indicador "este versículo está en la TV". */
+private val TvMark = Color(0xFFFFB74D)
+
+/** Barra ámbar a la izquierda y fondo suave: marca el versículo que se está proyectando. */
+private fun Modifier.tvMark(shape: androidx.compose.ui.graphics.Shape): Modifier =
+    this.clip(shape)
+        .background(TvMark.copy(alpha = 0.16f))
+        .drawBehind { drawRect(TvMark, size = Size(4.dp.toPx(), size.height)) }
+
 @Composable
 private fun VerseList(book: Int, chapter: Int, red: Boolean, onChapter: (Int) -> Unit) {
     val ctx = LocalContext.current
@@ -341,19 +353,27 @@ private fun VerseList(book: Int, chapter: Int, red: Boolean, onChapter: (Int) ->
         }
         itemsIndexed(verses) { i, text ->
             val styled = remember(text, red, redColor) { christText(text, red, redColor) }
+            // Este versículo es el que está proyectándose en la TV ahora mismo
+            val projected = ExternalDisplay.flat == Bible.flatIndex(book, chapter - 1, i)
             Row(
                 Modifier.fillMaxWidth()
+                    .then(if (projected) Modifier.tvMark(MaterialTheme.shapes.medium) else Modifier)
                     .bounceClick(MaterialTheme.shapes.medium) {
                         openProjector(ctx, Bible.flatIndex(book, chapter - 1, i))
                     }
                     .padding(horizontal = 8.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.Top,
             ) {
-                Text(
-                    "${i + 1}", style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.width(30.dp).padding(top = 3.dp),
-                )
+                Column(Modifier.width(30.dp).padding(top = 3.dp)) {
+                    Text(
+                        "${i + 1}", style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    if (projected) Icon(
+                        Icons.Rounded.Tv, "En la TV", tint = TvMark,
+                        modifier = Modifier.padding(top = 2.dp).size(16.dp),
+                    )
+                }
                 Text(styled, style = MaterialTheme.typography.bodyLarge)
             }
         }
@@ -368,15 +388,25 @@ private fun VerseList(book: Int, chapter: Int, red: Boolean, onChapter: (Int) ->
 }
 
 @Composable
-private fun VerseCard(label: String, text: String, red: Boolean, redColor: Color, onClick: () -> Unit) {
+private fun VerseCard(
+    label: String, text: String, red: Boolean, redColor: Color,
+    projected: Boolean = false, onClick: () -> Unit,
+) {
     val styled = remember(text, red, redColor) { christText(text, red, redColor) }
     Column(
         Modifier.fillMaxWidth()
             .bounceClick(MaterialTheme.shapes.medium, onClick)
             .glass(MaterialTheme.shapes.medium)
+            .then(if (projected) Modifier.tvMark(MaterialTheme.shapes.medium) else Modifier)
             .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            if (projected) Icon(
+                Icons.Rounded.Tv, "En la TV", tint = TvMark,
+                modifier = Modifier.padding(start = 6.dp).size(16.dp),
+            )
+        }
         Spacer(Modifier.height(2.dp))
         Text(styled, style = MaterialTheme.typography.bodyMedium, maxLines = 5, overflow = TextOverflow.Ellipsis)
     }
@@ -405,7 +435,7 @@ private fun BibleSearch(q: String, red: Boolean, onBook: (Int) -> Unit, onGoTo: 
                 val b = ref[0]; val c = ref[1]; val v = ref[2]
                 if (v > 0) {
                     val flat = Bible.flatIndex(b, c - 1, v - 1)
-                    VerseCard(Bible.label(flat), Bible.verseAt(flat), red, redColor) { openProjector(ctx, flat) }
+                    VerseCard(Bible.label(flat), Bible.verseAt(flat), red, redColor, ExternalDisplay.flat == flat) { openProjector(ctx, flat) }
                 } else {
                     ListItem(
                         modifier = Modifier.bounceClick(MaterialTheme.shapes.large) { onGoTo(b, c) }.glass(MaterialTheme.shapes.large),
@@ -431,7 +461,7 @@ private fun BibleSearch(q: String, red: Boolean, onBook: (Int) -> Unit, onGoTo: 
             }
             items(r.hits.size) { k ->
                 val flat = r.hits[k]
-                VerseCard(Bible.label(flat), Bible.verseAt(flat), red, redColor) { openProjector(ctx, flat) }
+                VerseCard(Bible.label(flat), Bible.verseAt(flat), red, redColor, ExternalDisplay.flat == flat) { openProjector(ctx, flat) }
             }
         }
         if (empty) {
